@@ -1,0 +1,12 @@
+[submodule "lib/fmt"]
+	path = lib/fmt
+	url = https://github.com/fmtlib/fmt
+[submodule "lib/sqlitecpp"]
+	path = lib/sqlitecpp
+	url = https://github.com/srombauts/sqlitecpp
+[submodule "lib/uuid_v4"]
+	path = lib/uuid_v4
+	url = https://github.com/crashoz/uuid_v4
+[submodule "lib/yaml-cpp"]
+	path = lib/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp
