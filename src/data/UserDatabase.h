@@ -17,12 +17,22 @@ private:
     std::string dbPath;
     SQLite::Database *db;
 
-    // publications
-
-    SQLite::Statement *insertUserQuery;
-    SQLite::Statement *getUserByUUIDQuery;
-
     UUIDv4::UUIDGenerator<std::mt19937_64> UUIDGenerator;
+
+    SQLite::Statement *validateUnregisteredUserByKeyQuery;
+    SQLite::Statement *validateRegisteredUserByTokenQuery;
+
+    SQLite::Statement *beginUserRegistrationQuery;
+    SQLite::Statement *finishUserRegistrationQuery1;
+    SQLite::Statement *finishUserRegistrationQuery2;
+    SQLite::Statement *terminateUserRegistrationQuery;
+
+    SQLite::Statement *getUserByTokenQuery;
+    SQLite::Statement *removeUserByTokenQuery;
+
+    SQLite::Statement *getAllUsersQuery;
+
+    SQLite::Statement *updateTelemetryQuery;
 
     int code = 0;
 
@@ -33,13 +43,23 @@ private:
         begin = std::chrono::steady_clock::now();
     }
 
-    int endElapsedTimer() const {
+    [[nodiscard]] int endElapsedTimer() const {
         return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin).count();
     }
 #endif
 
 public:
-    int insertUser(User &user);
+    int validateUnregisteredUserByKey(int64_t key, bool &success); // used in other methods
+    int validateRegisteredUserByToken(UUIDv4::UUID token, bool &success); // used in other methods
 
-    int getUserByUUID(const UUIDv4::UUID& uuid, User &user);
+    int beginUserRegistration(int64_t key = 0); // from terminal user new
+    int finishUserRegistration(User &user); // from HTTP /register
+    int terminateUserRegistration(int64_t key = 0); // from terminal user remove-new
+
+    int getUserByToken(User &user); // reserve for later
+    int removeUserByToken(User &user); // from terminal user remove
+
+    int getAllUsers(std::vector<User> &users); // from HTTP /getData
+
+    int updateTelemetry(User &user); // from HTTP /sendData
 };

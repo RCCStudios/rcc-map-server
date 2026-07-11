@@ -4,7 +4,7 @@ project(rm-server)
 
 add_definitions(-DRM_DEBUG=true)
 add_definitions(-DRM_VERSION="0.0.0")
-add_definitions(-DRM_BUILD="260711a")
+add_definitions(-DRM_BUILD="260711b")
 add_definitions(-DRM_BUILD_DATE=__DATE__)
 
 set(CMAKE_CXX_STANDARD 20)
