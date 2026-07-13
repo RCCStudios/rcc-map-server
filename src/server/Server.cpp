@@ -26,8 +26,7 @@ int Server::init() {
     running = true;
     restartRequired = false;
 
-    time_t now = time(nullptr);
-    nextDump = now;
+    nextDump = time(nullptr);
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing threads");
 
@@ -193,7 +192,7 @@ void Server::inputThreadLoop() {
 
 void Server::webServerThreadLoop() {
     try {
-        webServer->listen("0.0.0.0", 8080);
+        webServer->listen(config.serverListenToAddress, config.serverListenToPort);
     } catch (std::exception &e) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Worker thread encountered an unhandled exception. Program execution will be terminated: {}", e.what()));
         code = RM_ERROR_CODE_UNKNOWN;
@@ -310,10 +309,13 @@ int Server::loadConfig() {
         RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("No config file found. A new one will be created at path \"{}\"", config.path));
 
         try {
-            YAMLConfig["config_path"] = config.path;
             YAMLConfig["user_db_path"] = config.userDatabasePath;
+
             YAMLConfig["server_cert_path"] = config.serverCertPath;
             YAMLConfig["server_private_key_path"] = config.serverPrivateKeyPath;
+            YAMLConfig["server_listen_to_address"] = config.serverListenToAddress;
+            YAMLConfig["server_listen_to_port"] = config.serverListenToPort;
+
             YAMLConfig["snapshot_interval"] = config.snapshotInterval;
             YAMLConfig["dump_interval"] = config.dumpInterval;
 
@@ -331,8 +333,12 @@ int Server::loadConfig() {
             YAMLConfig = YAML::LoadFile(config.path);
 
             config.userDatabasePath = YAMLConfig["user_db_path"].as<std::string>();
+
             config.serverCertPath = YAMLConfig["server_cert_path"].as<std::string>();
             config.serverPrivateKeyPath = YAMLConfig["server_private_key_path"].as<std::string>();
+            config.serverListenToAddress = YAMLConfig["server_listen_to_address"].as<std::string>();
+            config.serverListenToPort = YAMLConfig["server_listen_to_port"].as<uint16_t>();
+
             config.snapshotInterval = YAMLConfig["snapshot_interval"].as<uint32_t>();
             config.dumpInterval = YAMLConfig["dump_interval"].as<uint32_t>();
         } catch (const std::exception &e) {
@@ -356,6 +362,8 @@ int Server::loadDatabases() {
 }
 
 int Server::loadWebServer() {
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Loading web server");
+
     try {
         if (not std::filesystem::exists(config.serverCertPath)) {
             RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("No certificate file found at path \"{}\"", config.serverCertPath));
@@ -364,10 +372,13 @@ int Server::loadWebServer() {
             RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("No private key file found at path \"{}\"", config.serverPrivateKeyPath));
         }
 
-        // webServer = new httplib::SSLServer(config.serverCertPath.c_str(), config.serverPrivateKeyPath.c_str());
-        webServer = std::make_unique<httplib::Server>();
+        webServer = std::make_unique<httplib::SSLServer>(config.serverCertPath.c_str(), config.serverPrivateKeyPath.c_str());
 
         webServer->Post("/sendData", [this](const httplib::Request &request, httplib::Response &response) {
+#ifdef RM_DEBUG
+            beginElapsedTimer();
+#endif
+
             response.set_content(std::to_string(config.snapshotInterval), "text/plain");
             int responseCode = 0;
             User user{};
@@ -391,9 +402,17 @@ int Server::loadWebServer() {
             }
 
             response.status = static_cast<httplib::StatusCode>(executeJob([this, &user] { return userDatabase->updateTelemetry(user); }));
+
+#ifdef RM_DEBUG
+            RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
+#endif
         });
 
         webServer->Post("/register", [this](const httplib::Request &request, httplib::Response &response) {
+#ifdef RM_DEBUG
+            beginElapsedTimer();
+#endif
+
             int responseCode = 0;
             User user{.token = UUIDv4::UUID(0, 0)};
 
@@ -421,11 +440,17 @@ int Server::loadWebServer() {
 
             response.status = static_cast<httplib::StatusCode>(executeJob([this, &user] { return userDatabase->finishUserRegistration(user); }));
             response.set_content(user.token.str(), "text/plain");
+
+#ifdef RM_DEBUG
+            RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
+#endif
         });
     } catch (std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to initialize the web server: {}", e.what()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to load the web server: {}", e.what()));
         return RM_ERROR_CODE_LIB_HTTP;
     }
+
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Web server loaded");
 
     return 0;
 }
@@ -441,12 +466,17 @@ int Server::unloadDatabases() {
 }
 
 int Server::unloadWebServer() {
+    if (webServer == nullptr) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, "Cannot destroy a httplib::SSLServer object since it is not initialized");
+        return RM_ERROR_CODE_NOT_INITIALIZED;
+    }
+
     webServer->stop();
     return 0;
 }
 
 int Server::scheduleNextDump() {
-    nextDump += config.snapshotInterval;
+    nextDump += config.dumpInterval;
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Next dump at {}", unixtimeToIso8601(nextDump)));
 
     return 0;

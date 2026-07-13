@@ -29,8 +29,7 @@ class Server {
 private:
     UserDatabase *userDatabase = nullptr;
 
-    // std::unique_ptr<httplib::SSLServer> webServer = nullptr;
-    std::unique_ptr<httplib::Server> webServer = nullptr;
+    std::unique_ptr<httplib::SSLServer> webServer = nullptr;
 
     void inputThreadLoop();
     void workerThreadLoop();
@@ -82,6 +81,18 @@ private:
     Config config{};
 
     std::atomic_int code = 0;
+
+#ifdef RM_DEBUG
+    std::chrono::steady_clock::time_point begin;
+
+    void beginElapsedTimer() {
+        begin = std::chrono::steady_clock::now();
+    }
+
+    [[nodiscard]] int endElapsedTimer() const {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin).count();
+    }
+#endif
 
 public:
     int run();

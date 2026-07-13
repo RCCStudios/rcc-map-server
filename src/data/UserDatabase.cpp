@@ -101,7 +101,7 @@ int UserDatabase::validateUnregisteredUserByKey(uint32_t key, bool &success) {
     validateUnregisteredUserByKeyQuery->reset();
 
 #ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Operation done in {}ns; key = {}", endElapsedTimer(), strKey));
+    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; key = {}", endElapsedTimer(), strKey));
 #endif
 
     return RM_HTTP_CODE_OK;
@@ -141,7 +141,7 @@ int UserDatabase::validateRegisteredUserByToken(UUIDv4::UUID token, bool &succes
     validateRegisteredUserByTokenQuery->reset();
 
 #ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Operation done in {}ns; token = {}", endElapsedTimer(), token.str()));
+    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; token = {}", endElapsedTimer(), token.str()));
 #endif
 
     return RM_HTTP_CODE_OK;
@@ -188,7 +188,7 @@ int UserDatabase::beginUserRegistration(uint32_t key) {
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("New user registered with key {}. Enter it in the app to finish registration", strKey));
 
 #ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Operation done in {}ns; key = {}", endElapsedTimer(), strKey));
+    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; key = {}", endElapsedTimer(), strKey));
 #endif
 
     return RM_HTTP_CODE_OK;
@@ -232,7 +232,7 @@ int UserDatabase::finishUserRegistration(User &user) {
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("New user registered with {} and token {}", strKey, user.token.str()));
 
 #ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Operation done in {}ns; key = {}", endElapsedTimer(), strKey));
+    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; key = {}", endElapsedTimer(), strKey));
 #endif
 
     return RM_HTTP_CODE_OK;
@@ -267,7 +267,7 @@ int UserDatabase::terminateUserRegistration(uint32_t key) {
     terminateUserRegistrationQuery->reset();
 
 #ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Operation done in {}ns; key = {}", endElapsedTimer(), strKey));
+    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; key = {}", endElapsedTimer(), strKey));
 #endif
 
     return RM_HTTP_CODE_OK;
@@ -307,7 +307,7 @@ int UserDatabase::getUserByToken(User &user) {
     getUserByTokenQuery->reset();
 
 #ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Operation done in {}ns; token = {}", endElapsedTimer(), user.token.str()));
+    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; token = {}", endElapsedTimer(), user.token.str()));
 #endif
 
     return RM_HTTP_CODE_OK;
@@ -338,7 +338,7 @@ int UserDatabase::removeUserByToken(UUIDv4::UUID token) {
     removeUserByTokenQuery->reset();
 
 #ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Operation done in {}ns; token = {}", endElapsedTimer(), token.str()));
+    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; token = {}", endElapsedTimer(), token.str()));
 #endif
 
     return RM_HTTP_CODE_OK;
@@ -372,7 +372,7 @@ int UserDatabase::getAllUsers(std::vector<User> &users) {
     getAllUsersQuery->reset();
 
 #ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Operation done in {}ns", endElapsedTimer()));
+    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns", endElapsedTimer()));
 #endif
 
     return RM_HTTP_CODE_OK;
@@ -418,7 +418,7 @@ int UserDatabase::updateTelemetry(User &user) {
     updateTelemetryQuery->reset();
 
 #ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Operation done in {}ns, token = {}", endElapsedTimer(), user.token.str()));
+    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns, token = {}", endElapsedTimer(), user.token.str()));
 #endif
 
     return RM_HTTP_CODE_OK;
