@@ -41,7 +41,7 @@ int UserDatabase::init(const std::string &path) {
 
     beginUserRegistrationQuery = std::make_unique<SQLite::Statement>(*db, "INSERT INTO users (token_x, token_y, key, state) VALUES (?, ?, ?, ?)");
     finishUserRegistrationQuery1 = std::make_unique<SQLite::Statement>(*db, "SELECT token_x, token_y FROM users where key = ?");
-    finishUserRegistrationQuery2 = std::make_unique<SQLite::Statement>(*db, "UPDATE users SET state = ? WHERE key = ?");
+    finishUserRegistrationQuery2 = std::make_unique<SQLite::Statement>(*db, "UPDATE users SET name = ?, state = ? WHERE key = ?");
     terminateUserRegistrationQuery = std::make_unique<SQLite::Statement>(*db, "DELETE FROM users WHERE key = ?");
 
     getUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT key, name, pfp_path, state, timestamp, latitude, longitude, battery_level FROM users WHERE token_x = ? and token_y = ?");
@@ -218,8 +218,9 @@ int UserDatabase::finishUserRegistration(User &user) {
 
         user.token = UUIDv4::UUID(finishUserRegistrationQuery1->getColumn(0).getInt64(), finishUserRegistrationQuery1->getColumn(1).getInt64());
 
-        finishUserRegistrationQuery2->bind(1, User::State::RM_USER_STATE_UNDEFINED);
-        finishUserRegistrationQuery2->bind(2, user.key);
+        finishUserRegistrationQuery2->bind(1, user.name);
+        finishUserRegistrationQuery2->bind(2, User::State::RM_USER_STATE_UNDEFINED);
+        finishUserRegistrationQuery2->bind(3, user.key);
         finishUserRegistrationQuery2->exec();
     } catch (std::exception &e) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to insert user with key {}: caught SQLite exception: {}", strKey, e.what()));

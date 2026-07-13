@@ -10,6 +10,7 @@ struct User {
         RM_USER_STATE_PENDING_REGISTRATION,
         RM_USER_STATE_ACTIVE,
         RM_USER_STATE_INACTIVE,
+        RM_USER_STATE_ENUM_COUNT,
     };
 
     UUIDv4::UUID token;

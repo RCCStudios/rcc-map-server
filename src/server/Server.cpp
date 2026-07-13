@@ -379,23 +379,22 @@ int Server::loadWebServer() {
             beginElapsedTimer();
 #endif
 
-            response.set_content(std::to_string(config.snapshotInterval), "text/plain");
-            int responseCode = 0;
+            response.set_content(nlohmann::json({{"timeToNextSnapshot", config.snapshotInterval}}).dump(), "application/json");
             User user{};
 
-            const std::vector<std::string> args = splitString(request.body, ' ');
-            if (args.size() < 5) {
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
-                return;
-            }
-
             try {
-                user.token = UUIDv4::UUID::fromStrFactory(args[0]);
-                user.state = static_cast<User::State>(std::stoi(args[1]));
+                nlohmann::json data = nlohmann::json::parse(request.body);
+
+                user.token = UUIDv4::UUID::fromStrFactory(data["token"].get<std::string>().c_str());
+                user.state = data["state"];
                 user.telemetry.timestamp = time(nullptr);
-                user.telemetry.latitude = std::stod(args[2]);
-                user.telemetry.longitude = std::stod(args[3]);
-                user.telemetry.batteryLevel = std::stoi(args[4]);
+                user.telemetry.latitude = data["latitude"];
+                user.telemetry.longitude = data["longitude"];
+                user.telemetry.batteryLevel = data["batteryLevel"];
+
+                if (data["state"].get<int>() >= User::State::RM_USER_STATE_ENUM_COUNT) {
+                    throw std::exception();
+                }
             } catch (std::exception &e) {
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
                 return;
@@ -413,36 +412,32 @@ int Server::loadWebServer() {
             beginElapsedTimer();
 #endif
 
-            int responseCode = 0;
             User user{.token = UUIDv4::UUID(0, 0)};
 
-            const std::vector<std::string> args = splitString(request.body, ' ');
-            if (args.size() < 2) {
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
-                response.set_content(user.token.str(), "text/plain");
-                return;
-            }
-
-            if (not checkStringForValidHex(args[0], 8)) {
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
-                response.set_content(user.token.str(), "text/plain");
-                return;
-            }
+            std::string keyStr;
 
             try {
-                hexStringToInt(args[0], user.key, 8);
-                user.name = args[1];
+                nlohmann::json data = nlohmann::json::parse(request.body);
+                keyStr = data["key"].get<std::string>();
+                user.name = data["name"].get<std::string>();
             } catch (std::exception &e) {
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
-                response.set_content(user.token.str(), "text/plain");
+                return;
+            }
+
+            if (not hexStringToInt(keyStr, user.key, 8))
+            {
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
                 return;
             }
 
             response.status = static_cast<httplib::StatusCode>(executeJob([this, &user] { return userDatabase->finishUserRegistration(user); }));
-            response.set_content(user.token.str(), "text/plain");
+            if (response.status == RM_HTTP_CODE_OK) {
+                response.set_content(nlohmann::json({{"token", user.token.str()}}).dump(), "application/json");
+            }
 
 #ifdef RM_DEBUG
-            RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
+            RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), keyStr));
 #endif
         });
     } catch (std::exception &e) {
