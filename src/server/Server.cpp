@@ -11,7 +11,7 @@
 #include <chrono>
 #include <filesystem>
 
-Server *Server::singletonInstance = nullptr;
+std::unique_ptr<Server> Server::singletonInstance = nullptr;
 bool Server::isInitialized = false;
 
 std::atomic_bool Server::running = false;
@@ -26,6 +26,9 @@ int Server::init() {
     running = true;
     restartRequired = false;
 
+    time_t now = time(nullptr);
+    nextDump = now;
+
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing threads");
 
     workerThread = std::thread(&Server::workerThreadLoop, this);
@@ -33,37 +36,37 @@ int Server::init() {
     workerThreadIdStringStream << workerThread.get_id();
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Worker thread: {}", workerThreadIdStringStream.str()));
 
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Doing initial jobs");
+
+    // do some initial jobs
+    if ((code = loadConfig())) {
+        return code;
+    }
+    if ((code = loadDatabases())) {
+        return code;
+    }
+    if ((code = loadWebServer())) {
+        return code;
+    }
+    if ((code = scheduleNextDump())) {
+        return code;
+    }
+
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initial jobs done");
+
     inputThread = std::thread(&Server::inputThreadLoop, this);
     std::stringstream inputThreadIdStringStream;
     inputThreadIdStringStream << inputThread.get_id();
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Input thread: {}", inputThreadIdStringStream.str()));
 
+    webServerThread = std::thread(&Server::webServerThreadLoop, this);
+    std::stringstream webServerThreadIdStringStream;
+    webServerThreadIdStringStream << webServerThread.get_id();
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Web server thread: {}", webServerThreadIdStringStream.str()));
+
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Threads initialized");
 
-    time_t now = time(0);
-    tm *ptmgm = gmtime(&now);
-    time_t gmnow = mktime(ptmgm);
-    timeDifference = gmnow - now;
-    if (ptmgm->tm_isdst > 0) {
-        timeDifference -= 3600;
-    }
-
-    nextDump = now;
-
     isInitialized = true;
-
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Waiting for worker thread to do initial jobs");
-
-    // do some initial jobs
-    jobsToDo.emplace([this] { return loadConfig(); });
-    jobsToDo.emplace([this] { return loadDatabases(); });
-    jobsToDo.emplace([this] { return scheduleNextDump(); });
-
-    hasJobsToDo = true;
-    workerCV.notify_all();
-
-    std::unique_lock<std::mutex> uniqueLocker(mainMutex);
-    mainCV.wait(uniqueLocker, [this] { return not hasJobsToDo; }); // wait for worker thread to finish initial jobs
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initial jobs done");
 
@@ -76,16 +79,11 @@ int Server::destroy() {
         return RM_ERROR_CODE_NOT_INITIALIZED;
     }
 
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Waiting for worker thread to do final jobs");
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Doing final jobs");
 
-    // do some initial jobs
-    jobsToDo.emplace([this] { return unloadDatabases(); });
-
-    hasJobsToDo = true;
-    workerCV.notify_all();
-
-    std::unique_lock<std::mutex> uniqueLocker(mainMutex);
-    mainCV.wait(uniqueLocker, [this] { return not hasJobsToDo; }); // wait for worker thread to finish final jobs
+    // do some final jobs
+    unloadWebServer();
+    unloadDatabases();
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Final jobs done");
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Stopping threads");
@@ -96,13 +94,14 @@ int Server::destroy() {
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Worker thread joined");
 
     inputCV.notify_all();
-    inputThread.detach(); // unable to join() because of std::getline()
+    inputThread.join(); // unable to join() because of std::getline()
 
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Input thread detached");
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Input thread joined");
 
-    workerThread.~thread();
-    inputThread.~thread();
+    webServerCV.notify_all();
+    webServerThread.join(); // unable to join() because of std::getline()
 
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Web server thread joined");
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Threads stopped");
 
     isInitialized = false;
@@ -111,74 +110,115 @@ int Server::destroy() {
 
 int Server::run() {
     // main app cycle
-    while (true) {
-        std::unique_lock<std::mutex> uniqueLocker(mainMutex); // wait for input
-        mainCV.wait_until(uniqueLocker, std::chrono::system_clock::from_time_t(nextDump), [this] { return hasInputToProcess or (not running); }); // jump from Server::readInput() OR next dump
-
-        if (not running) {
-            break;
-        }
-
-        if (hasInputToProcess) {
-            processInput();
-            hasInputToProcess = false;
-        }
-
-        if (not running) {
-            break;
-        }
+    while (running) {
+        std::unique_lock<std::mutex> uniqueLocker(mainMutex);
+        mainCV.wait_until(uniqueLocker, std::chrono::system_clock::from_time_t(nextDump), [] { return not running; });
 
         if (std::time(nullptr) >= nextDump - 1) {
-            jobsToDo.emplace([this] { return dumpTelemetry(); });
+            executeJob([this] { return dumpTelemetry(); });
             scheduleNextDump();
         }
-
-        hasJobsToDo = not jobsToDo.empty();
-        workerCV.notify_all(); // jump to Server::workerThreadLoop()
-
-        uniqueLocker.unlock();
-        inputCV.notify_all(); // jump to Server::inputThreadLoop()
     }
 
     return code;
 }
 
 void Server::workerThreadLoop() {
-    while (true) {
-        if (jobsToDo.size() == 0) {
-            hasJobsToDo = false;
-            std::unique_lock<std::mutex> uniqueLocker(workerMutex); // wait for new tasks
-            workerCV.wait(uniqueLocker, [this] { return hasJobsToDo or (not running); }); // jump from Server::run()
-        }
+    while (running) {
+        std::unique_lock<std::mutex> uniqueLocker(workerMutex);
+        workerCV.wait(uniqueLocker, [this] { return not jobsToDo.empty() or not running; });
 
-        if (not running and not hasJobsToDo) {
-            mainCV.notify_all();
+        if (not running) {
             break;
         }
 
-        // execute first job from the queue
-        auto currentJob = jobsToDo.front();
+        Job currentJob = jobsToDo.front();
         jobsToDo.pop();
-        code = currentJob();
-        if (code) {
-            RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Worker thread encountered an error while executing one of the jobs (error code {}). See above for the errors", code));
+        uniqueLocker.unlock();
 
-            // notify main thread
+        int returnCode = 0;
+
+        try {
+            returnCode = currentJob.fun();
+        } catch (std::exception &e) {
+            RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Worker thread encountered an unhandled exception. Program execution will be terminated: {}", e.what()));
+            code = RM_ERROR_CODE_UNKNOWN;
             running = false;
-            mainCV.notify_all();
+            mainCV.notify_all(); // notify main thread of stopping execution
+        }
+        if (returnCode > RM_ERROR_CODE_THRESHOLD) {
+            RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Worker thread finished job execution with unsatisfactory code {}. See above for the errors. Program execution will be terminated", static_cast<int>(returnCode)));
+            code = returnCode;
+            running = false;
+            mainCV.notify_all(); // notify main thread of stopping execution
+        }
+
+        if (currentJob.done != nullptr) {
+            *currentJob.done = true;
+        }
+        if (currentJob.code != nullptr) {
+            *currentJob.code = returnCode;
+        }
+        if (currentJob.cv != nullptr) {
+            currentJob.cv->notify_all();
         }
     }
 }
 
 void Server::inputThreadLoop() {
-    while (true) {
-        std::getline(std::cin, inputString); // wait for user
-        hasInputToProcess = true;
-        mainCV.notify_all(); // jump to Server::run()
+    pollfd fds[1];
+    fds[0].fd = STDIN_FILENO;
+    fds[0].events = POLLIN;
+    fds[0].revents = 0;
 
-        std::unique_lock<std::mutex> uniqueLocker(inputMutex); // wait for parsing
-        inputCV.wait(uniqueLocker, [this] { return (not hasInputToProcess) or (not running); }); // jump from Server::run()
+    while (running) {
+        int ret = poll(fds, 1, 200);
+
+        if (ret < 0) {
+            if (errno == EINTR) {
+                continue; // interrupted by signal, just retry
+            }
+            RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, "Input poll failed");
+            continue;
+        }
+
+        if (ret == 0) {
+            continue;
+        }
+
+        std::getline(std::cin, inputString);
+        processInput();
     }
+}
+
+void Server::webServerThreadLoop() {
+    try {
+        webServer->listen("0.0.0.0", 8080);
+    } catch (std::exception &e) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Worker thread encountered an unhandled exception. Program execution will be terminated: {}", e.what()));
+        code = RM_ERROR_CODE_UNKNOWN;
+        running = false;
+        mainCV.notify_all(); // notify main thread of stopping execution
+    }
+}
+
+void Server::executeJobAsync(std::function<int()> job) {
+    jobsToDo.emplace(job);
+    workerCV.notify_all();
+}
+
+int Server::executeJob(std::function<int()> job) {
+    int returnCode = 0;
+    bool done = false;
+    std::mutex mutex;
+    std::unique_lock<std::mutex> jobLocker(mutex);
+    std::condition_variable cv;
+
+    jobsToDo.emplace(job, &cv, &returnCode, &done);
+    workerCV.notify_all();
+
+    cv.wait(jobLocker, [&done] { return done; });
+    return returnCode;
 }
 
 void Server::processInput() {
@@ -187,21 +227,78 @@ void Server::processInput() {
     if (inputArgs[0] == "") {
         return;
     }
+
     if (inputArgs[0] == "stop") {
         running = false;
+        mainCV.notify_all();
         return;
     }
+
     if (inputArgs[0] == "restart") {
         restartRequired = true;
         running = false;
+        mainCV.notify_all();
         return;
     }
+
     if (inputArgs[0] == "hi") {
         RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Hello!");
         return;
     }
 
-    RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": unrecognized command", inputString));
+    if (inputArgs[0] == "user") {
+        if (inputArgs.size() == 1) {
+            RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": no subcommand found", inputString));
+            return;
+        }
+
+        if (inputArgs[1] == "new") {
+            uint32_t key = 0;
+            if (inputArgs.size() == 3) {
+                if (not hexStringToInt(inputArgs[2], key, 8)) {
+                    RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": string to key conversion failed", inputString));
+                    return;
+                }
+            }
+            executeJob([this, key] { return userDatabase->beginUserRegistration(key); });
+            return;
+        }
+
+        if (inputArgs[1] == "remove-new") {
+            if (inputArgs.size() == 2) {
+                RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": no argument found", inputString));
+                return;
+            }
+            uint32_t key = 0;
+            if (not hexStringToInt(inputArgs[2], key, 8)) {
+                RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": string to key conversion failed", inputString));
+                return;
+            }
+            executeJob([this, key] { return userDatabase->terminateUserRegistration(key); });
+            return;
+        }
+
+        if (inputArgs[1] == "remove") {
+            if (inputArgs.size() == 2) {
+                RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": no argument found", inputString));
+                return;
+            }
+            UUIDv4::UUID token;
+            try {
+                token.fromStr(inputArgs[2].c_str());
+            } catch (std::exception &e) {
+                RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": string to token conversion failed", inputString));
+                return;
+            }
+            executeJob([this, token] { return userDatabase->removeUserByToken(token); });
+            return;
+        }
+
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": unknown subcommand", inputString));
+        return;
+    }
+
+    RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": unrecognized command", inputString));
 }
 
 int Server::loadConfig() {
@@ -213,7 +310,12 @@ int Server::loadConfig() {
         RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("No config file found. A new one will be created at path \"{}\"", config.path));
 
         try {
+            YAMLConfig["config_path"] = config.path;
             YAMLConfig["user_db_path"] = config.userDatabasePath;
+            YAMLConfig["server_cert_path"] = config.serverCertPath;
+            YAMLConfig["server_private_key_path"] = config.serverPrivateKeyPath;
+            YAMLConfig["snapshot_interval"] = config.snapshotInterval;
+            YAMLConfig["dump_interval"] = config.dumpInterval;
 
             std::filesystem::create_directories("config");
 
@@ -229,6 +331,10 @@ int Server::loadConfig() {
             YAMLConfig = YAML::LoadFile(config.path);
 
             config.userDatabasePath = YAMLConfig["user_db_path"].as<std::string>();
+            config.serverCertPath = YAMLConfig["server_cert_path"].as<std::string>();
+            config.serverPrivateKeyPath = YAMLConfig["server_private_key_path"].as<std::string>();
+            config.snapshotInterval = YAMLConfig["snapshot_interval"].as<uint32_t>();
+            config.dumpInterval = YAMLConfig["dump_interval"].as<uint32_t>();
         } catch (const std::exception &e) {
             RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to load config: {}", e.what()));
             return RM_ERROR_CODE_LIB_YAML;
@@ -243,30 +349,105 @@ int Server::loadConfig() {
 int Server::loadDatabases() {
     userDatabase = UserDatabase::getInstance();
     if ((code = userDatabase->init(config.userDatabasePath))) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to initialize a UserDatabase object (error code {}). See above for the errors", code));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to initialize a UserDatabase object (error code {}). See above for the errors", static_cast<int>(code)));
         return code;
     }
+    return 0;
+}
+
+int Server::loadWebServer() {
+    try {
+        if (not std::filesystem::exists(config.serverCertPath)) {
+            RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("No certificate file found at path \"{}\"", config.serverCertPath));
+        }
+        if (not std::filesystem::exists(config.serverPrivateKeyPath)) {
+            RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("No private key file found at path \"{}\"", config.serverPrivateKeyPath));
+        }
+
+        // webServer = new httplib::SSLServer(config.serverCertPath.c_str(), config.serverPrivateKeyPath.c_str());
+        webServer = std::make_unique<httplib::Server>();
+
+        webServer->Post("/sendData", [this](const httplib::Request &request, httplib::Response &response) {
+            response.set_content(std::to_string(config.snapshotInterval), "text/plain");
+            int responseCode = 0;
+            User user{};
+
+            const std::vector<std::string> args = splitString(request.body, ' ');
+            if (args.size() < 5) {
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
+                return;
+            }
+
+            try {
+                user.token = UUIDv4::UUID::fromStrFactory(args[0]);
+                user.state = static_cast<User::State>(std::stoi(args[1]));
+                user.telemetry.timestamp = time(nullptr);
+                user.telemetry.latitude = std::stod(args[2]);
+                user.telemetry.longitude = std::stod(args[3]);
+                user.telemetry.batteryLevel = std::stoi(args[4]);
+            } catch (std::exception &e) {
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
+                return;
+            }
+
+            response.status = static_cast<httplib::StatusCode>(executeJob([this, &user] { return userDatabase->updateTelemetry(user); }));
+        });
+
+        webServer->Post("/register", [this](const httplib::Request &request, httplib::Response &response) {
+            int responseCode = 0;
+            User user{.token = UUIDv4::UUID(0, 0)};
+
+            const std::vector<std::string> args = splitString(request.body, ' ');
+            if (args.size() < 2) {
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
+                response.set_content(user.token.str(), "text/plain");
+                return;
+            }
+
+            if (not checkStringForValidHex(args[0], 8)) {
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
+                response.set_content(user.token.str(), "text/plain");
+                return;
+            }
+
+            try {
+                hexStringToInt(args[0], user.key, 8);
+                user.name = args[1];
+            } catch (std::exception &e) {
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
+                response.set_content(user.token.str(), "text/plain");
+                return;
+            }
+
+            response.status = static_cast<httplib::StatusCode>(executeJob([this, &user] { return userDatabase->finishUserRegistration(user); }));
+            response.set_content(user.token.str(), "text/plain");
+        });
+    } catch (std::exception &e) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to initialize the web server: {}", e.what()));
+        return RM_ERROR_CODE_LIB_HTTP;
+    }
+
     return 0;
 }
 
 int Server::unloadDatabases() {
     if ((code = userDatabase->destroy())) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to initialize a UserDatabase object (error code {}). See above for the errors", code));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to destroy a UserDatabase object (error code {}). See above for the errors", static_cast<int>(code)));
         return code;
     }
 
-    delete userDatabase;
+    UserDatabase::releaseInstance();
+    return 0;
+}
+
+int Server::unloadWebServer() {
+    webServer->stop();
     return 0;
 }
 
 int Server::scheduleNextDump() {
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Scheduling next telemetry dump");
-
-    nextDump += 60;
+    nextDump += config.snapshotInterval;
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Next dump at {}", unixtimeToIso8601(nextDump)));
-
-    hasScheduled = true;
-    mainIntialCV.notify_all(); // jump to Mango::init()
 
     return 0;
 }

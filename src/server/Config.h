@@ -4,6 +4,12 @@
 #include <string>
 
 struct Config {
-    std::string path = "config/common.yml";
+    std::string path = "config.yml";
     std::string userDatabasePath = "data/userdb.sql";
+
+    std::string serverCertPath = "web/cert.pem";
+    std::string serverPrivateKeyPath = "web/key.pem";
+
+    uint32_t snapshotInterval = 180;
+    uint32_t dumpInterval = 86400;
 };

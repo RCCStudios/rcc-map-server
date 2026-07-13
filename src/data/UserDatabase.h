@@ -15,24 +15,24 @@ class UserDatabase {
 
 private:
     std::string dbPath;
-    SQLite::Database *db;
+    std::unique_ptr<SQLite::Database> db;
 
     UUIDv4::UUIDGenerator<std::mt19937_64> UUIDGenerator;
 
-    SQLite::Statement *validateUnregisteredUserByKeyQuery;
-    SQLite::Statement *validateRegisteredUserByTokenQuery;
+    std::unique_ptr<SQLite::Statement> validateUnregisteredUserByKeyQuery;
+    std::unique_ptr<SQLite::Statement> validateRegisteredUserByTokenQuery;
 
-    SQLite::Statement *beginUserRegistrationQuery;
-    SQLite::Statement *finishUserRegistrationQuery1;
-    SQLite::Statement *finishUserRegistrationQuery2;
-    SQLite::Statement *terminateUserRegistrationQuery;
+    std::unique_ptr<SQLite::Statement> beginUserRegistrationQuery;
+    std::unique_ptr<SQLite::Statement> finishUserRegistrationQuery1;
+    std::unique_ptr<SQLite::Statement> finishUserRegistrationQuery2;
+    std::unique_ptr<SQLite::Statement> terminateUserRegistrationQuery;
 
-    SQLite::Statement *getUserByTokenQuery;
-    SQLite::Statement *removeUserByTokenQuery;
+    std::unique_ptr<SQLite::Statement> getUserByTokenQuery;
+    std::unique_ptr<SQLite::Statement> removeUserByTokenQuery;
 
-    SQLite::Statement *getAllUsersQuery;
+    std::unique_ptr<SQLite::Statement> getAllUsersQuery;
 
-    SQLite::Statement *updateTelemetryQuery;
+    std::unique_ptr<SQLite::Statement> updateTelemetryQuery;
 
     int code = 0;
 
@@ -49,15 +49,15 @@ private:
 #endif
 
 public:
-    int validateUnregisteredUserByKey(int64_t key, bool &success); // used in other methods
+    int validateUnregisteredUserByKey(uint32_t key, bool &success); // used in other methods
     int validateRegisteredUserByToken(UUIDv4::UUID token, bool &success); // used in other methods
 
-    int beginUserRegistration(int64_t key = 0); // from terminal user new
+    int beginUserRegistration(uint32_t key = 0); // from terminal user new
     int finishUserRegistration(User &user); // from HTTP /register
-    int terminateUserRegistration(int64_t key = 0); // from terminal user remove-new
+    int terminateUserRegistration(uint32_t key = 0); // from terminal user remove-new
 
     int getUserByToken(User &user); // reserve for later
-    int removeUserByToken(User &user); // from terminal user remove
+    int removeUserByToken(UUIDv4::UUID token); // from terminal user remove
 
     int getAllUsers(std::vector<User> &users); // from HTTP /getData
 

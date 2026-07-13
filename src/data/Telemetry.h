@@ -5,8 +5,8 @@
 struct Telemetry {
     std::time_t timestamp = 0;
 
-    float latitude = 0;
-    float longitude = 0;
+    double latitude = 0;
+    double longitude = 0;
 
     int batteryLevel = 0;
 };

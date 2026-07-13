@@ -13,7 +13,7 @@ struct User {
     };
 
     UUIDv4::UUID token;
-    int64_t key;
+    uint32_t key;
 
     std::string name;
     std::string pfpPath;

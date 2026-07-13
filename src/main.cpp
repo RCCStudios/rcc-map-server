@@ -12,6 +12,7 @@ int main() {
 
         if ((code = server->init())) {
             RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to initialize the Server object (error code {}). See above for the errors", code));
+            Server::releaseInstance();
             break;
         }
 
@@ -23,10 +24,8 @@ int main() {
 
         if ((code = server->destroy())) {
             RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to destroy the Server object (error code {}). See above for the errors", code));
-            break;
         }
-
-        delete server;
+        Server::releaseInstance();
     } while (Server::restartRequired);
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Done ({})", code));
