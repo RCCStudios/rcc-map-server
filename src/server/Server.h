@@ -19,9 +19,6 @@
 #include <poll.h>
 #include <unistd.h>
 
-
-#define CPPHTTPLIB_OPENSSL_SUPPORT
-
 class Server {
 
     RM_DECLARE_SINGLETON(Server)

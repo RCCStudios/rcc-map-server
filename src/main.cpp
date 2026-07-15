@@ -2,7 +2,7 @@
 #include "server/Server.h"
 
 int main() {
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Starting up rm-server {}-{} built on {}", RM_VERSION, RM_BUILD, RM_BUILD_DATE));
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Starting up rcc-map-server {}-{} built on {}", RM_VERSION, RM_BUILD, RM_BUILD_DATE));
 
     int code = 0;
 

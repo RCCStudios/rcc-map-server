@@ -1,22 +1,25 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(rm-server)
+project(rcc-map-server)
 
-add_definitions(-DRM_DEBUG=true)
+
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_definitions(-DRM_DEBUG=true)
+endif ()
 add_definitions(-DRM_VERSION="0.0.1")
 add_definitions(-DRM_BUILD="260713b")
 add_definitions(-DRM_BUILD_DATE=__DATE__)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -Wall")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64 -Wall")
 
 file(GLOB_RECURSE RM_SRC
         "src/*.h"
         "src/*.cpp"
 )
 
-add_executable(rm-server ${RM_SRC})
+add_executable(rcc-map-server ${RM_SRC})
 
 add_subdirectory(lib/cpp-httplib)
 add_subdirectory(lib/fmt)
@@ -25,4 +28,4 @@ add_subdirectory(lib/sqlitecpp)
 add_subdirectory(lib/uuid_v4)
 add_subdirectory(lib/yaml-cpp)
 
-target_link_libraries(rm-server ${CMAKE_THREAD_LIBS_INIT} ${OPENSSL_LIBRARIES} ${CURL_LIBRARIES} httplib fmt::fmt nlohmann_json::nlohmann_json SQLiteCpp sqlite3 uuid_v4::uuid_v4 yaml-cpp::yaml-cpp)
+target_link_libraries(rcc-map-server ${CMAKE_THREAD_LIBS_INIT} ${OPENSSL_LIBRARIES} ${CURL_LIBRARIES} httplib fmt::fmt nlohmann_json::nlohmann_json SQLiteCpp sqlite3 uuid_v4::uuid_v4 yaml-cpp::yaml-cpp)

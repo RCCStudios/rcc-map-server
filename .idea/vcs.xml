@@ -2,7 +2,9 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/lib/cpp-httplib" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/lib/fmt" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/lib/json" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/lib/sqlitecpp" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/lib/uuid_v4" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/lib/yaml-cpp" vcs="Git" />
