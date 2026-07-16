@@ -26,7 +26,11 @@ int Server::init() {
     running = true;
     restartRequired = false;
 
-    nextDump = time(nullptr);
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing signal handlers");
+    for (const int &sig: std::vector<int>{SIGTERM, SIGSEGV, SIGINT, SIGILL, SIGABRT, SIGFPE}) {
+        signal(sig, [](const int signal) { Server::getInstance()->terminate(signal); });
+    }
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Signal handlers initialized");
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing threads");
 
@@ -36,6 +40,8 @@ int Server::init() {
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Worker thread: {}", workerThreadIdStringStream.str()));
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Doing initial jobs");
+
+    nextDump = time(nullptr);
 
     // do some initial jobs
     if ((code = loadConfig())) {
@@ -93,18 +99,28 @@ int Server::destroy() {
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Worker thread joined");
 
     inputCV.notify_all();
-    inputThread.join(); // unable to join() because of std::getline()
+    inputThread.join();
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Input thread joined");
 
     webServerCV.notify_all();
-    webServerThread.join(); // unable to join() because of std::getline()
+    webServerThread.join();
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Web server thread joined");
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Threads stopped");
 
     isInitialized = false;
     return 0;
+}
+
+void Server::terminate(int signal) {
+    if (signal) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Got termination call by signal {}", signal));
+    } else {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Got termination call");
+    }
+    running = false;
+    mainCV.notify_all(); // notify main thread of stopping execution
 }
 
 int Server::run() {
@@ -142,14 +158,12 @@ void Server::workerThreadLoop() {
         } catch (std::exception &e) {
             RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Worker thread encountered an unhandled exception. Program execution will be terminated: {}", e.what()));
             code = RM_ERROR_CODE_UNKNOWN;
-            running = false;
-            mainCV.notify_all(); // notify main thread of stopping execution
+            terminate();
         }
         if (returnCode > RM_ERROR_CODE_THRESHOLD) {
             RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Worker thread finished job execution with unsatisfactory code {}. See above for the errors. Program execution will be terminated", static_cast<int>(returnCode)));
             code = returnCode;
-            running = false;
-            mainCV.notify_all(); // notify main thread of stopping execution
+            terminate();
         }
 
         if (currentJob.done != nullptr) {
@@ -171,11 +185,11 @@ void Server::inputThreadLoop() {
     fds[0].revents = 0;
 
     while (running) {
-        int ret = poll(fds, 1, 200);
+        const int ret = poll(fds, 1, 200);
 
         if (ret < 0) {
             if (errno == EINTR) {
-                continue; // interrupted by signal, just retry
+                continue;
             }
             RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, "Input poll failed");
             continue;
@@ -194,19 +208,18 @@ void Server::webServerThreadLoop() {
     try {
         webServer->listen(config.serverListenToAddress, config.serverListenToPort);
     } catch (std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Worker thread encountered an unhandled exception. Program execution will be terminated: {}", e.what()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Web server thread encountered an unhandled exception. Program execution will be terminated: {}", e.what()));
         code = RM_ERROR_CODE_UNKNOWN;
-        running = false;
-        mainCV.notify_all(); // notify main thread of stopping execution
+        terminate();
     }
 }
 
-void Server::executeJobAsync(std::function<int()> job) {
+void Server::executeJobAsync(const std::function<int()>& job) {
     jobsToDo.emplace(job);
     workerCV.notify_all();
 }
 
-int Server::executeJob(std::function<int()> job) {
+int Server::executeJob(const std::function<int()>& job) {
     int returnCode = 0;
     bool done = false;
     std::mutex mutex;
@@ -223,20 +236,18 @@ int Server::executeJob(std::function<int()> job) {
 void Server::processInput() {
     inputArgs = splitString(inputString, ' ');
 
-    if (inputArgs[0] == "") {
+    if (inputArgs[0].empty()) {
         return;
     }
 
     if (inputArgs[0] == "stop") {
-        running = false;
-        mainCV.notify_all();
+        terminate();
         return;
     }
 
     if (inputArgs[0] == "restart") {
         restartRequired = true;
-        running = false;
-        mainCV.notify_all();
+        terminate();
         return;
     }
 
@@ -425,8 +436,7 @@ int Server::loadWebServer() {
                 return;
             }
 
-            if (not hexStringToInt(keyStr, user.key, 8))
-            {
+            if (not hexStringToInt(keyStr, user.key, 8)) {
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
                 return;
             }

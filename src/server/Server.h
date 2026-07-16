@@ -16,8 +16,7 @@
 #include <thread>
 #include <condition_variable>
 #include <atomic>
-#include <poll.h>
-#include <unistd.h>
+#include <csignal>
 
 class Server {
 
@@ -28,14 +27,15 @@ private:
 
     std::unique_ptr<httplib::SSLServer> webServer = nullptr;
 
+
     void inputThreadLoop();
     void workerThreadLoop();
     void webServerThreadLoop();
 
     void processInput();
 
-    void executeJobAsync(std::function<int()> job);
-    int executeJob(std::function<int()> job);
+    void executeJobAsync(const std::function<int()>& job);
+    int executeJob(const std::function<int()>& job);
     // load jobs
 
     int loadConfig();
@@ -92,6 +92,7 @@ private:
 #endif
 
 public:
+    void terminate(int signal = 0);
     int run();
 
     static std::atomic_bool running;
