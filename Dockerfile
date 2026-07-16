@@ -17,6 +17,7 @@ COPY . /build/src
 
 RUN cmake -S /build/src -B /build/release \
         -DCMAKE_BUILD_TYPE=Release \
+        -DSSL_SUPPORT=OFF \
     && cmake --build /build/release -j"$(nproc)"
 
 FROM ubuntu:24.04 AS runtime

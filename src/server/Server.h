@@ -25,7 +25,11 @@ class Server {
 private:
     UserDatabase *userDatabase = nullptr;
 
+#ifdef RM_SSL_SUPPORT
     std::unique_ptr<httplib::SSLServer> webServer = nullptr;
+#else
+    std::unique_ptr<httplib::Server> webServer = nullptr;
+#endif
 
 
     void inputThreadLoop();

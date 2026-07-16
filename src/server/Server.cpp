@@ -205,6 +205,13 @@ void Server::inputThreadLoop() {
 }
 
 void Server::webServerThreadLoop() {
+#ifdef RM_SSL_SUPPORT
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Using HTTPS protocol");
+#else
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Using HTTP protocol");
+#endif
+
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Listening on {}:{}", config.serverListenToAddress, config.serverListenToPort));
     try {
         webServer->listen(config.serverListenToAddress, config.serverListenToPort);
     } catch (std::exception &e) {
@@ -376,6 +383,7 @@ int Server::loadWebServer() {
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Loading web server");
 
     try {
+#ifdef RM_SSL_SUPPORT
         if (not std::filesystem::exists(config.serverCertPath)) {
             RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("No certificate file found at path \"{}\"", config.serverCertPath));
         }
@@ -384,6 +392,9 @@ int Server::loadWebServer() {
         }
 
         webServer = std::make_unique<httplib::SSLServer>(config.serverCertPath.c_str(), config.serverPrivateKeyPath.c_str());
+#else
+        webServer = std::make_unique<httplib::Server>();
+#endif
 
         webServer->Post("/sendData", [this](const httplib::Request &request, httplib::Response &response) {
 #ifdef RM_DEBUG

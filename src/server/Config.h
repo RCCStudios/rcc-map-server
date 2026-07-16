@@ -4,7 +4,7 @@
 #include <string>
 
 struct Config {
-    std::string path = "config.yml";
+    std::string path = "config/config.yml";
     std::string userDatabasePath = "data/userdb.sql";
 
     std::string serverCertPath = "web/cert.pem";
