@@ -25,12 +25,7 @@ int Server::init() {
 
     running = true;
     restartRequired = false;
-
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing signal handlers");
-    for (const int &sig: std::vector<int>{SIGTERM, SIGSEGV, SIGINT, SIGILL, SIGABRT, SIGFPE}) {
-        signal(sig, [](const int signal) { Server::getInstance()->terminate(signal); });
-    }
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Signal handlers initialized");
+    isInitialized = true;
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing threads");
 
@@ -71,10 +66,6 @@ int Server::init() {
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Threads initialized");
 
-    isInitialized = true;
-
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initial jobs done");
-
     return 0;
 }
 
@@ -108,6 +99,12 @@ int Server::destroy() {
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Web server thread joined");
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Threads stopped");
+
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing signal handlers");
+    for (const int &sig: std::vector<int>{SIGTERM, SIGSEGV, SIGINT, SIGILL, SIGABRT, SIGFPE}) {
+        signal(sig, [](const int signal) { Server::getInstance()->terminate(signal); });
+    }
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Signal handlers initialized");
 
     isInitialized = false;
     return 0;
@@ -221,12 +218,12 @@ void Server::webServerThreadLoop() {
     }
 }
 
-void Server::executeJobAsync(const std::function<int()>& job) {
+void Server::executeJobAsync(const std::function<int()> &job) {
     jobsToDo.emplace(job);
     workerCV.notify_all();
 }
 
-int Server::executeJob(const std::function<int()>& job) {
+int Server::executeJob(const std::function<int()> &job) {
     int returnCode = 0;
     bool done = false;
     std::mutex mutex;
@@ -396,7 +393,7 @@ int Server::loadWebServer() {
         webServer = std::make_unique<httplib::Server>();
 #endif
 
-        webServer->Post("/sendData", [this](const httplib::Request &request, httplib::Response &response) {
+        webServer->Post("/api/sendData", [this](const httplib::Request &request, httplib::Response &response) {
 #ifdef RM_DEBUG
             beginElapsedTimer();
 #endif
@@ -408,16 +405,35 @@ int Server::loadWebServer() {
                 nlohmann::json data = nlohmann::json::parse(request.body);
 
                 user.token = UUIDv4::UUID::fromStrFactory(data["token"].get<std::string>().c_str());
-                user.state = data["state"];
-                user.telemetry.timestamp = time(nullptr);
-                user.telemetry.latitude = data["latitude"];
-                user.telemetry.longitude = data["longitude"];
-                user.telemetry.batteryLevel = data["batteryLevel"];
+                // user.state = data["state"];
+                user.state = User::RM_USER_STATE_ACTIVE;
+                std::time_t now = time(nullptr);
 
-                if (data["state"].get<int>() >= User::State::RM_USER_STATE_ENUM_COUNT) {
-                    throw std::exception();
+                for (const TelemetryProperty &prop: Telemetry::schema) {
+                    if (data[prop.name].is_null()) {
+                        continue;
+                    } else if (data[prop.name].type() != prop.type) {
+                        throw std::runtime_error(std::string("Wrong type for ") + prop.name);
+                    }
+                    switch (prop.type) {
+                        case nlohmann::json::value_t::number_integer:
+                            user.telemetry.data.push_back({std::bit_cast<uint32_t>(data[prop.name].get<int32_t>()), now, prop.name, prop.type});
+                            break;
+                        case nlohmann::json::value_t::number_float:
+                            user.telemetry.data.push_back({std::bit_cast<uint32_t>(data[prop.name].get<float>()), now, prop.name, prop.type});
+                            break;
+                        default:
+                            throw std::runtime_error(std::string("Unsupported type ") + data[prop.name].type_name());
+                    }
                 }
+
+                // if (data["state"].get<int>() >= User::State::RM_USER_STATE_ENUM_COUNT) {
+                //     throw std::exception();
+                // }
             } catch (std::exception &e) {
+#ifdef RM_DEBUG
+                RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}", e.what()));
+#endif
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
                 return;
             }
@@ -429,7 +445,7 @@ int Server::loadWebServer() {
 #endif
         });
 
-        webServer->Post("/register", [this](const httplib::Request &request, httplib::Response &response) {
+        webServer->Post("/api/register", [this](const httplib::Request &request, httplib::Response &response) {
 #ifdef RM_DEBUG
             beginElapsedTimer();
 #endif
@@ -473,7 +489,7 @@ int Server::loadWebServer() {
 
 int Server::unloadDatabases() {
     if ((code = userDatabase->destroy())) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to destroy a UserDatabase object (error code {}). See above for the errors", static_cast<int>(code)));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to destroy a UserDatabase object (error code {}). See above for the errors", static_cast<int>(code)));
         return code;
     }
 
@@ -483,7 +499,7 @@ int Server::unloadDatabases() {
 
 int Server::unloadWebServer() {
     if (webServer == nullptr) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, "Cannot destroy a httplib::SSLServer object since it is not initialized");
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, "Cannot destroy a httplib::SSLServer object since it is not initialized");
         return RM_ERROR_CODE_NOT_INITIALIZED;
     }
 

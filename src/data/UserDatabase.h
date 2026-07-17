@@ -3,6 +3,7 @@
 #include "../common.h"
 
 #include "User.h"
+#include "TelemetryProperty.h"
 
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <uuid_v4.h>
@@ -32,7 +33,7 @@ private:
 
     std::unique_ptr<SQLite::Statement> getAllUsersQuery;
 
-    std::unique_ptr<SQLite::Statement> updateTelemetryQuery;
+    // no updateTelemetryQuery for ya, it is compiled in-place
 
     int code = 0;
 
@@ -57,9 +58,9 @@ public:
     int terminateUserRegistration(uint32_t key = 0); // from terminal user remove-new
 
     int getUserByToken(User &user); // reserve for later
-    int removeUserByToken(UUIDv4::UUID token); // from terminal user remove
+    int removeUserByToken(const UUIDv4::UUID& token); // from terminal user remove
 
     int getAllUsers(std::vector<User> &users); // from HTTP /getData
 
-    int updateTelemetry(User &user); // from HTTP /sendData
+    int updateTelemetry(const User &user); // from HTTP /sendData
 };

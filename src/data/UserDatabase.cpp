@@ -13,18 +13,31 @@ int UserDatabase::init(const std::string &path) {
         return RM_ERROR_CODE_ALREADY_INITIALIZED;
     }
 
+    isInitialized = true;
+
     dbPath = path;
 
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing SQLite db");
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing SQLite DB");
 
     if (not std::filesystem::exists(dbPath)) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("No user database file found. A new one will be created at path \"{}\"", dbPath));
 
         try {
             std::filesystem::create_directory("data");
-
             db = std::make_unique<SQLite::Database>(dbPath, SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
-            db->exec("CREATE TABLE \"users\" (\"token_x\" INTEGER, \"token_y\" INTEGER, \"key\" INTEGER, \"name\" TEXT, \"pfp_path\" TEXT, \"state\" INTEGER, \"timestamp\" INTEGER, \"latitude\" REAL, \"longitude\" REAL, \"battery_level\" INTEGER, PRIMARY KEY(\"token_x\",\"token_y\"))");
+
+            std::stringstream stream;
+            stream << R"(CREATE TABLE "users" ("tokenX" INTEGER, "tokenY" INTEGER, "key" INTEGER, "name" TEXT, "pfpPath" TEXT, "state" INTEGER, )";
+            for (const TelemetryProperty &prop: Telemetry::schema) {
+                stream << "\"" << prop.name << "\" INTEGER, \"" << prop.name << "TS\" INTEGER, ";
+            }
+            stream << R"(PRIMARY KEY("tokenX", "tokenY")))";
+
+#ifdef RM_DEBUG
+            RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("DB create table query: {}", stream.str()));
+#endif
+
+            db->exec(stream.str());
         } catch (std::exception &e) {
             RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to create db: {}", e.what()));
             return RM_ERROR_CODE_LIB_SQLITE;
@@ -33,28 +46,37 @@ int UserDatabase::init(const std::string &path) {
         db = std::make_unique<SQLite::Database>(dbPath, SQLite::OPEN_READWRITE);
     }
 
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "SQLite db initialized");
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "SQLite DB initialized");
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Precompiling queries");
 
-    validateUnregisteredUserByKeyQuery = std::make_unique<SQLite::Statement>(*db, "SELECT state FROM users WHERE key = ?");
-    validateRegisteredUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT state FROM users WHERE token_x = ? and token_y = ?");
+    try {
+        std::stringstream stream;
+        for (const TelemetryProperty &prop: Telemetry::schema) {
+            stream << prop.name << ", " << prop.name << "TS, ";
+        }
 
-    beginUserRegistrationQuery = std::make_unique<SQLite::Statement>(*db, "INSERT INTO users (token_x, token_y, key, state) VALUES (?, ?, ?, ?)");
-    finishUserRegistrationQuery1 = std::make_unique<SQLite::Statement>(*db, "SELECT token_x, token_y FROM users where key = ?");
-    finishUserRegistrationQuery2 = std::make_unique<SQLite::Statement>(*db, "UPDATE users SET name = ?, state = ? WHERE key = ?");
-    terminateUserRegistrationQuery = std::make_unique<SQLite::Statement>(*db, "DELETE FROM users WHERE key = ?");
+        const std::string telemetrySchemaString = stream.str().substr(0, stream.str().length() - 2); // goofy ahh last comma workaround
 
-    getUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT key, name, pfp_path, state, timestamp, latitude, longitude, battery_level FROM users WHERE token_x = ? and token_y = ?");
-    removeUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "DELETE FROM users WHERE token_x = ? and token_y = ?");
+        validateUnregisteredUserByKeyQuery = std::make_unique<SQLite::Statement>(*db, "SELECT state FROM users WHERE key = ?");
+        validateRegisteredUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT state FROM users WHERE tokenX = ? and tokenY = ?");
 
-    getAllUsersQuery = std::make_unique<SQLite::Statement>(*db, "SELECT token_x, token_y, key, name, pfp_path, state, timestamp, latitude, longitude, battery_level FROM users");
+        beginUserRegistrationQuery = std::make_unique<SQLite::Statement>(*db, "INSERT INTO users (tokenX, tokenY, key, state) VALUES (?, ?, ?, ?)");
+        finishUserRegistrationQuery1 = std::make_unique<SQLite::Statement>(*db, "SELECT tokenX, tokenY FROM users where key = ?");
+        finishUserRegistrationQuery2 = std::make_unique<SQLite::Statement>(*db, "UPDATE users SET name = ?, state = ? WHERE key = ?");
+        terminateUserRegistrationQuery = std::make_unique<SQLite::Statement>(*db, "DELETE FROM users WHERE key = ?");
 
-    updateTelemetryQuery = std::make_unique<SQLite::Statement>(*db, "UPDATE users SET state = ?, timestamp = ?, latitude = ?, longitude = ?, battery_level = ? WHERE token_x = ? and token_y = ?");
+        getUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT key, name, pfpPath, state, " + telemetrySchemaString + " FROM users WHERE tokenX = ? and tokenY = ?");
+        removeUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "DELETE FROM users WHERE tokenX = ? and tokenY = ?");
 
+        getAllUsersQuery = std::make_unique<SQLite::Statement>(*db, "SELECT tokenX, tokenY, key, name, pfpPath, state, " + telemetrySchemaString + " FROM users");
+    }
+    catch (std::exception &e) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to precompile queries: {}", e.what()));
+        return RM_ERROR_CODE_LIB_SQLITE;
+    }
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Queries precompiled");
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "UserDatabase object initialized");
 
-    isInitialized = true;
 
     return 0;
 }
@@ -74,7 +96,7 @@ int UserDatabase::destroy() {
     return 0;
 }
 
-int UserDatabase::validateUnregisteredUserByKey(uint32_t key, bool &success) {
+int UserDatabase::validateUnregisteredUserByKey(const uint32_t key, bool &success) {
 #ifdef RM_DEBUG
     beginElapsedTimer();
 #endif
@@ -94,7 +116,7 @@ int UserDatabase::validateUnregisteredUserByKey(uint32_t key, bool &success) {
             RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("User validation failed with key {}: incorrect key. Somebody is trying to break in!", strKey));
         }
     } catch (std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to find user with key {}: caught SQLite exception: {}", strKey, e.what()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to find user with key {}: caught SQLIte exception: {}", strKey, e.what()));
         return RM_HTTP_CODE_INTERNAL_ERROR;
     }
 
@@ -117,24 +139,23 @@ int UserDatabase::validateRegisteredUserByToken(UUIDv4::UUID token, bool &succes
     char bytes[16];
     token.bytes(bytes);
 
-    int64_t tokenx = 0;
-    int64_t tokeny = 0;
-    memcpy(&tokenx, bytes + 8, 8);
-    memcpy(&tokeny, bytes, 8);
+    int64_t tokenX = 0;
+    int64_t tokenY = 0;
+    memcpy(&tokenX, bytes + 8, 8);
+    memcpy(&tokenY, bytes, 8);
 
     try {
-        validateRegisteredUserByTokenQuery->bind(1, tokenx);
-        validateRegisteredUserByTokenQuery->bind(2, tokeny);
+        validateRegisteredUserByTokenQuery->bind(1, tokenX);
+        validateRegisteredUserByTokenQuery->bind(2, tokenY);
         if (validateRegisteredUserByTokenQuery->executeStep()) {
             if (not((success = validateRegisteredUserByTokenQuery->getColumn(0).getInt() != User::State::RM_USER_STATE_PENDING_REGISTRATION))) {
                 RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("User validation failed with token {}: there is a user with such token, but their state is PENDING_REGISTRATION. Ensure that you sent the key before", token.str()));
             }
-        }
-        else {
+        } else {
             RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("User validation failed with token {}: incorrect token. Somebody is trying to break in!", token.str()));
         }
     } catch (std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to find user with token {}: caught SQLite exception: {}", token.str(), e.what()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to find user with token {}: caught SQLIte exception: {}", token.str(), e.what()));
         return RM_HTTP_CODE_INTERNAL_ERROR;
     }
 
@@ -153,33 +174,33 @@ int UserDatabase::beginUserRegistration(uint32_t key) {
 #endif
 
     if (key == 0) {
-        UUIDv4::UUID randomKey = UUIDGenerator.getUUID();
+        const UUIDv4::UUID randomKey = UUIDGenerator.getUUID();
         char bytes[16];
         randomKey.bytes(bytes);
 
         memcpy(&key, bytes, 4);
     }
 
-    UUIDv4::UUID token = UUIDGenerator.getUUID();
+    const UUIDv4::UUID token = UUIDGenerator.getUUID();
     char bytes[16];
     token.bytes(bytes);
 
-    int64_t tokenx = 0;
-    int64_t tokeny = 0;
-    memcpy(&tokenx, bytes + 8, 8);
-    memcpy(&tokeny, bytes, 8);
+    int64_t tokenX = 0;
+    int64_t tokenY = 0;
+    memcpy(&tokenX, bytes + 8, 8);
+    memcpy(&tokenY, bytes, 8);
 
     std::string strKey;
     intToHexString(key, strKey);
 
     try {
-        beginUserRegistrationQuery->bind(1, tokenx);
-        beginUserRegistrationQuery->bind(2, tokeny);
+        beginUserRegistrationQuery->bind(1, tokenX);
+        beginUserRegistrationQuery->bind(2, tokenY);
         beginUserRegistrationQuery->bind(3, key);
         beginUserRegistrationQuery->bind(4, User::State::RM_USER_STATE_PENDING_REGISTRATION);
         beginUserRegistrationQuery->exec();
     } catch (std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to insert user with key {}: caught SQLite exception: {}", strKey, e.what()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to insert user with key {}: caught SQLIte exception: {}", strKey, e.what()));
         return RM_HTTP_CODE_INTERNAL_ERROR;
     }
 
@@ -223,7 +244,7 @@ int UserDatabase::finishUserRegistration(User &user) {
         finishUserRegistrationQuery2->bind(3, user.key);
         finishUserRegistrationQuery2->exec();
     } catch (std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to insert user with key {}: caught SQLite exception: {}", strKey, e.what()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to insert user with key {}: caught SQLIte exception: {}", strKey, e.what()));
         return RM_HTTP_CODE_INTERNAL_ERROR;
     }
 
@@ -239,7 +260,7 @@ int UserDatabase::finishUserRegistration(User &user) {
     return RM_HTTP_CODE_OK;
 }
 
-int UserDatabase::terminateUserRegistration(uint32_t key) {
+int UserDatabase::terminateUserRegistration(const uint32_t key) {
 #ifdef RM_DEBUG
     beginElapsedTimer();
 #endif
@@ -261,7 +282,7 @@ int UserDatabase::terminateUserRegistration(uint32_t key) {
         terminateUserRegistrationQuery->bind(1, key);
         terminateUserRegistrationQuery->exec();
     } catch (std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to find user with key {}: caught SQLite exception: {}", strKey, e.what()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to find user with key {}: caught SQLIte exception: {}", strKey, e.what()));
         return RM_HTTP_CODE_INTERNAL_ERROR;
     }
 
@@ -282,26 +303,29 @@ int UserDatabase::getUserByToken(User &user) {
     char bytes[16];
     user.token.bytes(bytes);
 
-    int64_t tokenx = 0;
-    int64_t tokeny = 0;
-    memcpy(&tokenx, bytes + 8, 8);
-    memcpy(&tokeny, bytes, 8);
+    int64_t tokenX = 0;
+    int64_t tokenY = 0;
+    memcpy(&tokenX, bytes + 8, 8);
+    memcpy(&tokenY, bytes, 8);
 
     try {
-        getUserByTokenQuery->bind(1, tokenx);
-        getUserByTokenQuery->bind(2, tokeny);
+        getUserByTokenQuery->bind(1, tokenX);
+        getUserByTokenQuery->bind(2, tokenY);
         getUserByTokenQuery->executeStep();
 
         user.key = getUserByTokenQuery->getColumn(0).getInt();
         user.name = getUserByTokenQuery->getColumn(1).getString();
         user.pfpPath = getUserByTokenQuery->getColumn(2).getString();
         user.state = static_cast<User::State>(getUserByTokenQuery->getColumn(3).getInt());
-        user.telemetry.timestamp = static_cast<std::time_t>(getUserByTokenQuery->getColumn(4).getInt());
-        user.telemetry.latitude = getUserByTokenQuery->getColumn(5).getDouble();
-        user.telemetry.longitude = getUserByTokenQuery->getColumn(6).getDouble();
-        user.telemetry.batteryLevel = getUserByTokenQuery->getColumn(7).getInt();
+
+        for (int propIndex = 0; propIndex < Telemetry::schema.size(); propIndex++) {
+            if (getUserByTokenQuery->getColumn(propIndex * 2 + 4).isNull() or getUserByTokenQuery->getColumn(propIndex * 2 + 5).isNull()) {
+                continue;
+            }
+            user.telemetry.data.push_back({getUserByTokenQuery->getColumn(propIndex * 2 + 4).getUInt(), getUserByTokenQuery->getColumn(propIndex * 2 + 5).getUInt(), Telemetry::schema[propIndex].name, Telemetry::schema[propIndex].type});
+        }
     } catch (const std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to get user with token {}: caught SQLite exception: {}", user.token.str(), e.what()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to get user with token {}: caught SQLIte exception: {}", user.token.str(), e.what()));
         return RM_HTTP_CODE_INTERNAL_ERROR;
     }
 
@@ -314,7 +338,7 @@ int UserDatabase::getUserByToken(User &user) {
     return RM_HTTP_CODE_OK;
 }
 
-int UserDatabase::removeUserByToken(UUIDv4::UUID token) {
+int UserDatabase::removeUserByToken(const UUIDv4::UUID &token) {
 #ifdef RM_DEBUG
     beginElapsedTimer();
 #endif
@@ -322,17 +346,17 @@ int UserDatabase::removeUserByToken(UUIDv4::UUID token) {
     char bytes[16];
     token.bytes(bytes);
 
-    int64_t tokenx = 0;
-    int64_t tokeny = 0;
-    memcpy(&tokenx, bytes + 8, 8);
-    memcpy(&tokeny, bytes, 8);
+    int64_t tokenX = 0;
+    int64_t tokenY = 0;
+    memcpy(&tokenX, bytes + 8, 8);
+    memcpy(&tokenY, bytes, 8);
 
     try {
-        removeUserByTokenQuery->bind(1, tokenx);
-        removeUserByTokenQuery->bind(2, tokeny);
+        removeUserByTokenQuery->bind(1, tokenX);
+        removeUserByTokenQuery->bind(2, tokenY);
         removeUserByTokenQuery->exec();
     } catch (const std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to remove user with token {}: caught SQLite exception: {}", token.str(), e.what()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to remove user with token {}: caught SQLIte exception: {}", token.str(), e.what()));
         return RM_HTTP_CODE_INTERNAL_ERROR;
     }
 
@@ -358,15 +382,18 @@ int UserDatabase::getAllUsers(std::vector<User> &users) {
             user.name = getAllUsersQuery->getColumn(3).getString();
             user.pfpPath = getAllUsersQuery->getColumn(4).getString();
             user.state = static_cast<User::State>(getAllUsersQuery->getColumn(5).getInt());
-            user.telemetry.timestamp = static_cast<std::time_t>(getAllUsersQuery->getColumn(6).getInt());
-            user.telemetry.latitude = getAllUsersQuery->getColumn(7).getDouble();
-            user.telemetry.longitude = getAllUsersQuery->getColumn(8).getDouble();
-            user.telemetry.batteryLevel = getAllUsersQuery->getColumn(9).getInt();
+
+            for (int propIndex = 0; propIndex < Telemetry::schema.size(); propIndex++) {
+                if (getAllUsersQuery->getColumn(propIndex * 2 + 6).isNull() or getAllUsersQuery->getColumn(propIndex * 2 + 5).isNull()) {
+                    continue;
+                }
+                user.telemetry.data.push_back({getAllUsersQuery->getColumn(propIndex * 2 + 4).getUInt(), getAllUsersQuery->getColumn(propIndex * 2 + 7).getUInt(), Telemetry::schema[propIndex].name, Telemetry::schema[propIndex].type});
+            }
 
             users.push_back(user);
         }
     } catch (const std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to get users: caught SQLite exception: {}", e.what()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to get users: caught SQLIte exception: {}", e.what()));
         return RM_HTTP_CODE_INTERNAL_ERROR;
     }
 
@@ -379,7 +406,7 @@ int UserDatabase::getAllUsers(std::vector<User> &users) {
     return RM_HTTP_CODE_OK;
 }
 
-int UserDatabase::updateTelemetry(User &user) {
+int UserDatabase::updateTelemetry(const User &user) {
 #ifdef RM_DEBUG
     beginElapsedTimer();
 #endif
@@ -397,26 +424,30 @@ int UserDatabase::updateTelemetry(User &user) {
     char bytes[16];
     user.token.bytes(bytes);
 
-    int64_t tokenx = 0;
-    int64_t tokeny = 0;
-    memcpy(&tokenx, bytes + 8, 8);
-    memcpy(&tokeny, bytes, 8);
+    int64_t tokenX = 0;
+    int64_t tokenY = 0;
+    memcpy(&tokenX, bytes + 8, 8);
+    memcpy(&tokenY, bytes, 8);
+
+    std::stringstream stream;
+    stream << "UPDATE users SET ";
+    for (const TelemetryProperty &prop: user.telemetry.data) {
+        stream << prop.name << " = " << prop.data << ", " << prop.name << "TS = " << prop.timestamp << ", ";
+    }
+    stream.seekp(-2, std::stringstream::cur); // goofy ahh last comma workaround: electric boogaloo
+    stream << " WHERE tokenX = " << tokenX << " and tokenY = " << tokenY;
+    std::string query = stream.str();
+
+#ifdef RM_DEBUG
+    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Update telemetry query: {}", query));
+#endif
 
     try {
-        updateTelemetryQuery->bind(1, user.state);
-        updateTelemetryQuery->bind(2, user.telemetry.timestamp);
-        updateTelemetryQuery->bind(3, user.telemetry.latitude);
-        updateTelemetryQuery->bind(4, user.telemetry.longitude);
-        updateTelemetryQuery->bind(5, user.telemetry.batteryLevel);
-        updateTelemetryQuery->bind(6, tokenx);
-        updateTelemetryQuery->bind(7, tokeny);
-        updateTelemetryQuery->exec();
+        db->exec(query);
     } catch (const std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to update telemetry: caught SQLite exception: {}", e.what()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to update telemetry: caught SQLIte exception: {}", e.what()));
         return RM_HTTP_CODE_INTERNAL_ERROR;
     }
-
-    updateTelemetryQuery->reset();
 
 #ifdef RM_DEBUG
     RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns, token = {}", endElapsedTimer(), user.token.str()));

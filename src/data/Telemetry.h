@@ -1,12 +1,8 @@
 #pragma once
 
-#include <ctime>
+#include "TelemetryProperty.h"
 
 struct Telemetry {
-    std::time_t timestamp = 0;
-
-    double latitude = 0;
-    double longitude = 0;
-
-    int batteryLevel = 0;
+    std::vector<TelemetryProperty> data;
+    static std::vector<TelemetryProperty> schema;
 };
