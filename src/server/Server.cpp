@@ -393,7 +393,7 @@ int Server::loadWebServer() {
         webServer = std::make_unique<httplib::Server>();
 #endif
 
-        webServer->Post("/api/sendData", [this](const httplib::Request &request, httplib::Response &response) {
+        webServer->Post("/api/sendTelemetry", [this](const httplib::Request &request, httplib::Response &response) {
 #ifdef RM_DEBUG
             beginElapsedTimer();
 #endif
@@ -402,12 +402,21 @@ int Server::loadWebServer() {
             User user{};
 
             try {
-                nlohmann::json data = nlohmann::json::parse(request.body);
+                if (request.get_header_value("Authorization").substr(0, 7) != "Bearer ") {
+                    throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Authorization").substr(0, 7) + std::string("\""));
+                }
+                user.token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Authorization").substr(7));
+            } catch (std::exception &e) {
+                RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: {}", e.what()));
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_UNAUTHORIZED);
+                return;
+            }
 
-                user.token = UUIDv4::UUID::fromStrFactory(data["token"].get<std::string>().c_str());
-                // user.state = data["state"];
+            try {
                 user.state = User::RM_USER_STATE_ACTIVE;
                 std::time_t now = time(nullptr);
+
+                nlohmann::json data = nlohmann::json::parse(request.body);
 
                 for (const TelemetryProperty &prop: Telemetry::schema) {
                     if (data[prop.name].is_null()) {
@@ -417,10 +426,13 @@ int Server::loadWebServer() {
                     }
                     switch (prop.type) {
                         case nlohmann::json::value_t::number_integer:
-                            user.telemetry.data.push_back({std::bit_cast<uint32_t>(data[prop.name].get<int32_t>()), now, prop.name, prop.type});
+                            user.telemetry.data.push_back({std::bit_cast<uint64_t>(data[prop.name].get<int64_t>()), now, prop.name, prop.type});
+                            break;
+                        case nlohmann::json::value_t::number_unsigned:
+                            user.telemetry.data.push_back({std::bit_cast<uint64_t>(data[prop.name].get<uint64_t>()), now, prop.name, prop.type});
                             break;
                         case nlohmann::json::value_t::number_float:
-                            user.telemetry.data.push_back({std::bit_cast<uint32_t>(data[prop.name].get<float>()), now, prop.name, prop.type});
+                            user.telemetry.data.push_back({std::bit_cast<uint64_t>(data[prop.name].get<double>()), now, prop.name, prop.type});
                             break;
                         default:
                             throw std::runtime_error(std::string("Unsupported type ") + data[prop.name].type_name());

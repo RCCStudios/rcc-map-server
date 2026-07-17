@@ -54,8 +54,10 @@ int UserDatabase::init(const std::string &path) {
         for (const TelemetryProperty &prop: Telemetry::schema) {
             stream << prop.name << ", " << prop.name << "TS, ";
         }
-
-        const std::string telemetrySchemaString = stream.str().substr(0, stream.str().length() - 2); // goofy ahh last comma workaround
+        std::string telemetrySchemaString = stream.str();
+        if (not Telemetry::schema.empty()) {
+            telemetrySchemaString = telemetrySchemaString.substr(0, telemetrySchemaString.size() - 2); // goofy ahh last comma workaround
+        }
 
         validateUnregisteredUserByKeyQuery = std::make_unique<SQLite::Statement>(*db, "SELECT state FROM users WHERE key = ?");
         validateRegisteredUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT state FROM users WHERE tokenX = ? and tokenY = ?");
@@ -69,8 +71,7 @@ int UserDatabase::init(const std::string &path) {
         removeUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "DELETE FROM users WHERE tokenX = ? and tokenY = ?");
 
         getAllUsersQuery = std::make_unique<SQLite::Statement>(*db, "SELECT tokenX, tokenY, key, name, pfpPath, state, " + telemetrySchemaString + " FROM users");
-    }
-    catch (std::exception &e) {
+    } catch (std::exception &e) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to precompile queries: {}", e.what()));
         return RM_ERROR_CODE_LIB_SQLITE;
     }
@@ -129,7 +130,7 @@ int UserDatabase::validateUnregisteredUserByKey(const uint32_t key, bool &succes
     return RM_HTTP_CODE_OK;
 }
 
-int UserDatabase::validateRegisteredUserByToken(UUIDv4::UUID token, bool &success) {
+int UserDatabase::validateRegisteredUserByToken(const UUIDv4::UUID& token, bool &success) {
 #ifdef RM_DEBUG
     beginElapsedTimer();
 #endif
@@ -411,6 +412,10 @@ int UserDatabase::updateTelemetry(const User &user) {
     beginElapsedTimer();
 #endif
 
+    if (user.telemetry.data.empty()) {
+        return RM_HTTP_CODE_BAD_REQUEST;
+    }
+
     bool success;
     if ((code = validateRegisteredUserByToken(user.token, success)) != RM_HTTP_CODE_OK) {
         return code;
@@ -434,7 +439,9 @@ int UserDatabase::updateTelemetry(const User &user) {
     for (const TelemetryProperty &prop: user.telemetry.data) {
         stream << prop.name << " = " << prop.data << ", " << prop.name << "TS = " << prop.timestamp << ", ";
     }
-    stream.seekp(-2, std::stringstream::cur); // goofy ahh last comma workaround: electric boogaloo
+    if (not user.telemetry.data.empty()) {
+        stream.seekp(-2, std::stringstream::cur); // goofy ahh last comma workaround: electric boogaloo
+    }
     stream << " WHERE tokenX = " << tokenX << " and tokenY = " << tokenY;
     std::string query = stream.str();
 

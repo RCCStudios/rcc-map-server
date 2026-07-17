@@ -33,7 +33,7 @@ private:
 
     std::unique_ptr<SQLite::Statement> getAllUsersQuery;
 
-    // no updateTelemetryQuery for ya, it is compiled in-place
+    // no updateTelemetryQuery for you, it is compiled in-place
 
     int code = 0;
 
@@ -51,10 +51,10 @@ private:
 
 public:
     int validateUnregisteredUserByKey(uint32_t key, bool &success); // used in other methods
-    int validateRegisteredUserByToken(UUIDv4::UUID token, bool &success); // used in other methods
+    int validateRegisteredUserByToken(const UUIDv4::UUID& token, bool &success); // used in other methods
 
     int beginUserRegistration(uint32_t key = 0); // from terminal user new
-    int finishUserRegistration(User &user); // from HTTP /register
+    int finishUserRegistration(User &user); // from HTTP /api/register
     int terminateUserRegistration(uint32_t key = 0); // from terminal user remove-new
 
     int getUserByToken(User &user); // reserve for later
@@ -62,5 +62,5 @@ public:
 
     int getAllUsers(std::vector<User> &users); // from HTTP /getData
 
-    int updateTelemetry(const User &user); // from HTTP /sendData
+    int updateTelemetry(const User &user); // from HTTP /api/sendTelemetry
 };
