@@ -40,6 +40,7 @@ private:
 
     void executeJobAsync(const std::function<int()>& job);
     int executeJob(const std::function<int()>& job);
+
     // load jobs
 
     int loadConfig();
@@ -53,6 +54,7 @@ private:
 
     // main jobs
 
+    int sendTelemetryUpdate(User &user);
     int scheduleNextDump();
     int dumpTelemetry();
 
@@ -76,8 +78,9 @@ private:
     std::string inputString;
     std::vector<std::string> inputArgs;
 
+    std::list<httplib::ws::WebSocket*> openWebSockets;
+
     std::atomic<std::time_t> nextDump = 0;
-    std::time_t timeDifference = 0;
 
     Config config{};
 

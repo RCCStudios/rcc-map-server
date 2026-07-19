@@ -66,6 +66,12 @@ int Server::init() {
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Threads initialized");
 
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing signal handlers");
+    for (const int &sig: std::vector<int>{SIGTERM, SIGSEGV, SIGINT, SIGILL, SIGABRT, SIGFPE}) {
+        signal(sig, [](const int signal) { Server::getInstance()->terminate(signal); });
+    }
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Handlers initialized");
+
     return 0;
 }
 
@@ -74,6 +80,12 @@ int Server::destroy() {
         RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, "Cannot destroy a Server object since it is not initialized");
         return RM_ERROR_CODE_NOT_INITIALIZED;
     }
+
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Stopping signal handlers");
+    for (const int &sig: std::vector<int>{SIGTERM, SIGSEGV, SIGINT, SIGILL, SIGABRT, SIGFPE}) {
+        signal(sig, SIG_DFL);
+    }
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Handlers stopped");
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Doing final jobs");
 
@@ -99,12 +111,6 @@ int Server::destroy() {
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Web server thread joined");
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Threads stopped");
-
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing signal handlers");
-    for (const int &sig: std::vector<int>{SIGTERM, SIGSEGV, SIGINT, SIGILL, SIGABRT, SIGFPE}) {
-        signal(sig, [](const int signal) { Server::getInstance()->terminate(signal); });
-    }
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Signal handlers initialized");
 
     isInitialized = false;
     return 0;
@@ -278,7 +284,7 @@ void Server::processInput() {
             return;
         }
 
-        if (inputArgs[1] == "remove-new") {
+        if (inputArgs[1] == "retire-new") {
             if (inputArgs.size() == 2) {
                 RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": no argument found", inputString));
                 return;
@@ -292,7 +298,7 @@ void Server::processInput() {
             return;
         }
 
-        if (inputArgs[1] == "remove") {
+        if (inputArgs[1] == "retire") {
             if (inputArgs.size() == 2) {
                 RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": no argument found", inputString));
                 return;
@@ -304,7 +310,7 @@ void Server::processInput() {
                 RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": string to token conversion failed", inputString));
                 return;
             }
-            executeJob([this, token] { return userDatabase->removeUserByToken(token); });
+            executeJob([this, token] { return userDatabase->retireUserByToken(token); });
             return;
         }
 
@@ -393,6 +399,40 @@ int Server::loadWebServer() {
         webServer = std::make_unique<httplib::Server>();
 #endif
 
+        webServer->Post("/api/register", [this](const httplib::Request &request, httplib::Response &response) {
+#ifdef RM_DEBUG
+            beginElapsedTimer();
+#endif
+
+            User user{};
+            std::string keyStr;
+
+            try {
+                nlohmann::json data = nlohmann::json::parse(request.body);
+                keyStr = data["key"].get<std::string>();
+                user.name = data["name"].get<std::string>();
+            } catch (std::exception &e) {
+#ifdef RM_DEBUG
+                RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}", e.what()));
+#endif
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
+                return;
+            }
+
+            if (not hexStringToInt(keyStr, user.key, 8)) {
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
+                return;
+            }
+
+            if ((response.status = static_cast<httplib::StatusCode>(executeJob([this, &user] { return userDatabase->finishUserRegistration(user); }))) == RM_HTTP_CODE_OK) {
+                response.set_content(nlohmann::json({{"token", user.token.str()}}).dump(), "application/json");
+            }
+
+#ifdef RM_DEBUG
+            RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
+#endif
+        });
+
         webServer->Post("/api/sendTelemetry", [this](const httplib::Request &request, httplib::Response &response) {
 #ifdef RM_DEBUG
             beginElapsedTimer();
@@ -407,7 +447,9 @@ int Server::loadWebServer() {
                 }
                 user.token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Authorization").substr(7));
             } catch (std::exception &e) {
+#ifdef RM_DEBUG
                 RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: {}", e.what()));
+#endif
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_UNAUTHORIZED);
                 return;
             }
@@ -426,13 +468,13 @@ int Server::loadWebServer() {
                     }
                     switch (prop.type) {
                         case nlohmann::json::value_t::number_integer:
-                            user.telemetry.data.push_back({std::bit_cast<uint64_t>(data[prop.name].get<int64_t>()), now, prop.name, prop.type});
+                            user.telemetry.data.push_back({std::bit_cast<int64_t>(data[prop.name].get<int64_t>()), now, prop.name, prop.type});
                             break;
                         case nlohmann::json::value_t::number_unsigned:
-                            user.telemetry.data.push_back({std::bit_cast<uint64_t>(data[prop.name].get<uint64_t>()), now, prop.name, prop.type});
+                            user.telemetry.data.push_back({std::bit_cast<int64_t>(data[prop.name].get<uint64_t>()), now, prop.name, prop.type});
                             break;
                         case nlohmann::json::value_t::number_float:
-                            user.telemetry.data.push_back({std::bit_cast<uint64_t>(data[prop.name].get<double>()), now, prop.name, prop.type});
+                            user.telemetry.data.push_back({std::bit_cast<int64_t>(data[prop.name].get<double>()), now, prop.name, prop.type});
                             break;
                         default:
                             throw std::runtime_error(std::string("Unsupported type ") + data[prop.name].type_name());
@@ -451,44 +493,126 @@ int Server::loadWebServer() {
             }
 
             response.status = static_cast<httplib::StatusCode>(executeJob([this, &user] { return userDatabase->updateTelemetry(user); }));
+            executeJob([this, &user] { return sendTelemetryUpdate(user); });
 
 #ifdef RM_DEBUG
             RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
 #endif
         });
 
-        webServer->Post("/api/register", [this](const httplib::Request &request, httplib::Response &response) {
+        webServer->Get("/api/getTelemetry", [this](const httplib::Request &request, httplib::Response &response) {
 #ifdef RM_DEBUG
             beginElapsedTimer();
 #endif
 
-            User user{.token = UUIDv4::UUID(0, 0)};
-
-            std::string keyStr;
+            UUIDv4::UUID token;
 
             try {
-                nlohmann::json data = nlohmann::json::parse(request.body);
-                keyStr = data["key"].get<std::string>();
-                user.name = data["name"].get<std::string>();
+                if (request.get_header_value("Authorization").substr(0, 7) != "Bearer ") {
+                    throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Authorization").substr(0, 7) + std::string("\""));
+                }
+                token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Authorization").substr(7));
             } catch (std::exception &e) {
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_UNAUTHORIZED);
                 return;
             }
 
-            if (not hexStringToInt(keyStr, user.key, 8)) {
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
+            if ((response.status = static_cast<httplib::StatusCode>(executeJob([this, &token] { return userDatabase->validateRegisteredUserByToken(token); }))) != RM_HTTP_CODE_OK) {
                 return;
             }
 
-            response.status = static_cast<httplib::StatusCode>(executeJob([this, &user] { return userDatabase->finishUserRegistration(user); }));
-            if (response.status == RM_HTTP_CODE_OK) {
-                response.set_content(nlohmann::json({{"token", user.token.str()}}).dump(), "application/json");
+            std::vector<User> users;
+            if ((response.status = static_cast<httplib::StatusCode>(executeJob([this, &users] { return userDatabase->getAllUsers(users); }))) != RM_HTTP_CODE_OK) {
+                return;
             }
+
+            nlohmann::json data = nlohmann::json::array();
+
+            for (const User &user: users) {
+                if (user.state != User::State::RM_USER_STATE_ACTIVE) {
+                    continue;
+                }
+
+                nlohmann::json userData({
+                    {"id", user.id},
+                    {"name", user.name},
+                    {"pfpPath", user.pfpPath}
+                });
+
+                for (const TelemetryProperty &prop: user.telemetry.data) {
+                    switch (prop.type) {
+                        case nlohmann::json::value_t::number_integer:
+                            userData[prop.name] = {{"value", std::bit_cast<int64_t>(prop.value)}, {"timestamp", prop.timestamp}};
+                            break;
+                        case nlohmann::json::value_t::number_unsigned:
+                            userData[prop.name] = {{"value", std::bit_cast<uint64_t>(prop.value)}, {"timestamp", prop.timestamp}};
+                            break;
+                        case nlohmann::json::value_t::number_float:
+                            userData[prop.name] = {{"value", std::bit_cast<double>(prop.value)}, {"timestamp", prop.timestamp}};
+                            break;
+                        default:
+                            userData[prop.name] = nullptr;
+                    }
+                }
+
+                data.push_back(userData);
+            }
+
+            response.set_content(data.dump(), "application/json");
 
 #ifdef RM_DEBUG
-            RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), keyStr));
+            RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), token.str()));
 #endif
         });
+
+#ifdef RM_SSL_SUPPORT
+        std::string webSocketEndpoint = "/api/wss";
+#else
+        std::string webSocketEndpoint = "/api/ws";
+#endif
+        webServer->WebSocket(
+            webSocketEndpoint,
+            [this](const httplib::Request &request, httplib::ws::WebSocket &webSocket) {
+                UUIDv4::UUID token;
+
+                try {
+                    if (request.get_header_value("Sec-WebSocket-Protocol").substr(0, 7) != "bearer.") {
+                        throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Sec-WebSocket-Protocol").substr(0, 7) + std::string("\""));
+                    }
+                    token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Sec-WebSocket-Protocol").substr(7));
+                } catch (std::exception &e) {
+#ifdef RM_DEBUG
+                    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Websocket handshake auth failed: {}", e.what()));
+#endif
+                    webSocket.close(httplib::ws::CloseStatus::PolicyViolation, fmt::format("Authorization failed: {}", RM_HTTP_CODE_UNAUTHORIZED));
+                    return;
+                }
+
+                if (int responseCode = 0; (responseCode = executeJob([this, &token] { return userDatabase->validateRegisteredUserByToken(token); })) != RM_HTTP_CODE_OK) {
+                    webSocket.close(httplib::ws::CloseStatus::PolicyViolation, fmt::format("Authorization failed: {}", responseCode));
+                    return;
+                }
+
+
+                openWebSockets.push_back(&webSocket);
+#ifdef RM_DEBUG
+                RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("WebSocket connection opened (pointer {})", static_cast<void *>(&webSocket)));
+#endif
+
+                std::string _;
+                while (webSocket.is_open()) {
+                    if (webSocket.read(_) == httplib::ws::ReadResult::Fail) {
+                        break;
+                    }
+                }
+
+                openWebSockets.remove(&webSocket);
+                webSocket.close(httplib::ws::CloseStatus::Normal, "Shutting down gracefully");
+#ifdef RM_DEBUG
+                RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("WebSocket connection closed (pointer {})", static_cast<void *>(&webSocket)));
+#endif
+            },
+            [](const std::vector<std::string> &protocols) { return protocols[0]; });
     } catch (std::exception &e) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to load the web server: {}", e.what()));
         return RM_ERROR_CODE_LIB_HTTP;
@@ -516,6 +640,50 @@ int Server::unloadWebServer() {
     }
 
     webServer->stop();
+
+    for (httplib::ws::WebSocket *const webSocket: openWebSockets) {
+        webSocket->close(httplib::ws::CloseStatus::GoingAway, "Server is shutting down");
+    }
+    openWebSockets.clear();
+
+    return 0;
+}
+
+int Server::sendTelemetryUpdate(User &user) {
+    if (openWebSockets.empty()) {
+        return 0;
+    }
+
+    // since this DB call is inside a job it is OK to call it without worrying about thread safety
+    if (int responseCode = 0; (responseCode = userDatabase->getUserIDByToken(user)) != RM_HTTP_CODE_OK) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Telemetry update for WebSockets failed: database call finished with unsatisfactory code {}", responseCode));
+        return responseCode;
+    }
+
+    nlohmann::json data({{"id", user.id}});
+    for (const TelemetryProperty &prop: user.telemetry.data) {
+        switch (prop.type) {
+            case nlohmann::json::value_t::number_integer:
+                data[prop.name] = std::bit_cast<int64_t>(prop.value);
+                break;
+            case nlohmann::json::value_t::number_unsigned:
+                data[prop.name] = std::bit_cast<uint64_t>(prop.value);
+                break;
+            case nlohmann::json::value_t::number_float:
+                data[prop.name] = std::bit_cast<double>(prop.value);
+                break;
+            default:
+                data[prop.name] = nullptr;
+        }
+    }
+
+    const std::string message = data.dump();
+
+    for (httplib::ws::WebSocket *const webSocket: openWebSockets) {
+        if (webSocket->is_open()) {
+            webSocket->send(message);
+        }
+    }
     return 0;
 }
 
