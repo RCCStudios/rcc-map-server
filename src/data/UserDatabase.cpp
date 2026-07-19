@@ -33,9 +33,7 @@ int UserDatabase::init(const std::string &path) {
             }
             stream << R"(PRIMARY KEY("tokenX", "tokenY")))";
 
-#ifdef RM_DEBUG
-            RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("DB create table query: {}", stream.str()));
-#endif
+            RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("DB create table query: {}", stream.str()));
 
             db->exec(stream.str());
         } catch (std::exception &e) {
@@ -126,9 +124,7 @@ int UserDatabase::validateUnregisteredUserByKey(const uint32_t key) {
 
     validateUnregisteredUserByKeyQuery->tryReset();
 
-#ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; key = {}", endElapsedTimer(), strKey));
-#endif
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; key = {}", endElapsedTimer(), strKey));
 
     return responseCode;
 }
@@ -167,9 +163,7 @@ int UserDatabase::validateRegisteredUserByToken(const UUIDv4::UUID &token) {
 
     validateRegisteredUserByTokenQuery->tryReset();
 
-#ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; token = {}", endElapsedTimer(), token.str()));
-#endif
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; token = {}", endElapsedTimer(), token.str()));
 
     return responseCode;
 }
@@ -223,9 +217,7 @@ int UserDatabase::beginUserRegistration(uint32_t key) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("New user registered with key {}. Enter it in the app to finish registration", strKey));
     }
 
-#ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; key = {}", endElapsedTimer(), strKey));
-#endif
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; key = {}", endElapsedTimer(), strKey));
 
     return responseCode;
 }
@@ -267,9 +259,7 @@ int UserDatabase::finishUserRegistration(User &user) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("New user registered with key {} and token {}", strKey, user.token.str()));
     }
 
-#ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; key = {}", endElapsedTimer(), strKey));
-#endif
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; key = {}", endElapsedTimer(), strKey));
 
     return responseCode;
 }
@@ -300,9 +290,7 @@ int UserDatabase::terminateUserRegistration(const uint32_t key) {
 
     terminateUserRegistrationQuery->tryReset();
 
-#ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; key = {}", endElapsedTimer(), strKey));
-#endif
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; key = {}", endElapsedTimer(), strKey));
 
     return responseCode;
 }
@@ -347,9 +335,7 @@ int UserDatabase::getUserByToken(User &user) {
 
     getUserByTokenQuery->tryReset();
 
-#ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; token = {}", endElapsedTimer(), user.token.str()));
-#endif
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; token = {}", endElapsedTimer(), user.token.str()));
 
     return responseCode;
 }
@@ -382,9 +368,7 @@ int UserDatabase::getUserIDByToken(User &user) {
 
     getUserIDByTokenQuery->tryReset();
 
-#ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; token = {}", endElapsedTimer(), user.token.str()));
-#endif
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; token = {}", endElapsedTimer(), user.token.str()));
 
     return responseCode;
 }
@@ -416,9 +400,7 @@ int UserDatabase::retireUserByToken(const UUIDv4::UUID &token) {
 
     retireUserByTokenQuery->tryReset();
 
-#ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; token = {}", endElapsedTimer(), token.str()));
-#endif
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns; token = {}", endElapsedTimer(), token.str()));
 
     return responseCode;
 }
@@ -457,9 +439,7 @@ int UserDatabase::getAllUsers(std::vector<User> &users) {
 
     getAllUsersQuery->tryReset();
 
-#ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns", endElapsedTimer()));
-#endif
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns", endElapsedTimer()));
 
     return responseCode;
 }
@@ -500,9 +480,7 @@ int UserDatabase::updateTelemetry(const User &user) {
     stream << " WHERE tokenX = " << tokenX << " and tokenY = " << tokenY;
     std::string query = stream.str();
 
-#ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Update telemetry query: {}", query));
-#endif
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Update telemetry query: {}", query));
 
     try {
         db->exec(query);
@@ -511,9 +489,7 @@ int UserDatabase::updateTelemetry(const User &user) {
         responseCode = RM_HTTP_CODE_INTERNAL_ERROR;
     }
 
-#ifdef RM_DEBUG
-    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns, token = {}", endElapsedTimer(), user.token.str()));
-#endif
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns, token = {}", endElapsedTimer(), user.token.str()));
 
     return responseCode;
 }

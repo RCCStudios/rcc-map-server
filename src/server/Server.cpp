@@ -412,9 +412,7 @@ int Server::loadWebServer() {
                 keyStr = data["key"].get<std::string>();
                 user.name = data["name"].get<std::string>();
             } catch (std::exception &e) {
-#ifdef RM_DEBUG
-                RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}", e.what()));
-#endif
+                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}", e.what()));
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
                 return;
             }
@@ -428,9 +426,7 @@ int Server::loadWebServer() {
                 response.set_content(nlohmann::json({{"token", user.token.str()}}).dump(), "application/json");
             }
 
-#ifdef RM_DEBUG
-            RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
-#endif
+            RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
         });
 
         webServer->Post("/api/sendTelemetry", [this](const httplib::Request &request, httplib::Response &response) {
@@ -447,9 +443,7 @@ int Server::loadWebServer() {
                 }
                 user.token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Authorization").substr(7));
             } catch (std::exception &e) {
-#ifdef RM_DEBUG
-                RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: {}", e.what()));
-#endif
+                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: {}", e.what()));
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_UNAUTHORIZED);
                 return;
             }
@@ -485,9 +479,7 @@ int Server::loadWebServer() {
                 //     throw std::exception();
                 // }
             } catch (std::exception &e) {
-#ifdef RM_DEBUG
-                RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}", e.what()));
-#endif
+                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}", e.what()));
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
                 return;
             }
@@ -495,9 +487,7 @@ int Server::loadWebServer() {
             response.status = static_cast<httplib::StatusCode>(executeJob([this, &user] { return userDatabase->updateTelemetry(user); }));
             executeJob([this, &user] { return sendTelemetryUpdate(user); });
 
-#ifdef RM_DEBUG
-            RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
-#endif
+            RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
         });
 
         webServer->Get("/api/getTelemetry", [this](const httplib::Request &request, httplib::Response &response) {
@@ -560,9 +550,7 @@ int Server::loadWebServer() {
 
             response.set_content(data.dump(), "application/json");
 
-#ifdef RM_DEBUG
-            RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), token.str()));
-#endif
+            RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), token.str()));
         });
 
 #ifdef RM_SSL_SUPPORT
@@ -581,9 +569,7 @@ int Server::loadWebServer() {
                     }
                     token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Sec-WebSocket-Protocol").substr(7));
                 } catch (std::exception &e) {
-#ifdef RM_DEBUG
-                    RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Websocket handshake auth failed: {}", e.what()));
-#endif
+                    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Websocket handshake auth failed: {}", e.what()));
                     webSocket.close(httplib::ws::CloseStatus::PolicyViolation, fmt::format("Authorization failed: {}", RM_HTTP_CODE_UNAUTHORIZED));
                     return;
                 }
@@ -593,11 +579,8 @@ int Server::loadWebServer() {
                     return;
                 }
 
-
                 openWebSockets.push_back(&webSocket);
-#ifdef RM_DEBUG
-                RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("WebSocket connection opened (pointer {})", static_cast<void *>(&webSocket)));
-#endif
+                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("WebSocket connection opened (pointer {})", static_cast<void *>(&webSocket)));
 
                 std::string _;
                 while (webSocket.is_open()) {
@@ -608,9 +591,7 @@ int Server::loadWebServer() {
 
                 openWebSockets.remove(&webSocket);
                 webSocket.close(httplib::ws::CloseStatus::Normal, "Shutting down gracefully");
-#ifdef RM_DEBUG
-                RM_LOG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("WebSocket connection closed (pointer {})", static_cast<void *>(&webSocket)));
-#endif
+                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("WebSocket connection closed (pointer {})", static_cast<void *>(&webSocket)));
             },
             [](const std::vector<std::string> &protocols) { return protocols[0]; });
     } catch (std::exception &e) {

@@ -19,6 +19,12 @@
         fmt::print("[{}] {}[{}]: {}\n", std::chrono::system_clock::now(), __logLevelPrefix__, __prefix__, __message__); \
     } while (0)
 
+#ifdef RM_DEBUG
+#define RM_LOG_DEBUG(__logLevelPrefix__, __prefix__, __message__) RM_LOG(__logLevelPrefix__, __prefix__, __message__)
+#else
+#define RM_LOG_DEBUG(__logLevelPrefix__, __prefix__, __message__)
+#endif
+
 #define RM_DECLARE_SINGLETON(__className__, ...)                   \
 private:                                                           \
     static std::unique_ptr<__className__> singletonInstance;       \
