@@ -323,6 +323,7 @@ int Server::loadConfig() {
             YAMLConfig["server_private_key_path"] = config.serverPrivateKeyPath;
             YAMLConfig["server_listen_to_address"] = config.serverListenToAddress;
             YAMLConfig["server_listen_to_port"] = config.serverListenToPort;
+            YAMLConfig["otp_time_to_live"] = config.otpTimeToLive;
 
             YAMLConfig["snapshot_interval"] = config.snapshotInterval;
             YAMLConfig["dump_interval"] = config.dumpInterval;
@@ -346,6 +347,7 @@ int Server::loadConfig() {
             config.serverPrivateKeyPath = YAMLConfig["server_private_key_path"].as<std::string>();
             config.serverListenToAddress = YAMLConfig["server_listen_to_address"].as<std::string>();
             config.serverListenToPort = YAMLConfig["server_listen_to_port"].as<uint16_t>();
+            config.otpTimeToLive = YAMLConfig["otp_time_to_live"].as<uint32_t>();
 
             config.snapshotInterval = YAMLConfig["snapshot_interval"].as<uint32_t>();
             config.dumpInterval = YAMLConfig["dump_interval"].as<uint32_t>();

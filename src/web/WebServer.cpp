@@ -21,6 +21,11 @@ int WebServer::init() {
     isInitialized = true;
     parentServer = Server::getInstance();
 
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing OTP pool");
+
+    otpPool = std::make_unique<OTPPool>(parentServer->config.otpTimeToLive);
+
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "OTP pool initialized");
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing HTTPlib WebServer");
 
     try {
@@ -60,7 +65,7 @@ int WebServer::init() {
                 return;
             }
 
-            if ((response.status = static_cast<httplib::StatusCode>( parentServer->executeJob([this, &user] { return  parentServer->userDatabase->finishUserRegistration(user); }))) == RM_HTTP_CODE_OK) {
+            if ((response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &user] { return parentServer->userDatabase->finishUserRegistration(user); }))) == RM_HTTP_CODE_OK) {
                 response.set_content(nlohmann::json({{"token", user.token.str()}}).dump(), "application/json");
             }
 
@@ -72,7 +77,7 @@ int WebServer::init() {
             beginElapsedTimer();
 #endif
 
-            response.set_content(nlohmann::json({{"timeToNextSnapshot",  parentServer->config.snapshotInterval}}).dump(), "application/json");
+            response.set_content(nlohmann::json({{"timeToNextSnapshot", parentServer->config.snapshotInterval}}).dump(), "application/json");
             User user{};
 
             try {
@@ -88,7 +93,7 @@ int WebServer::init() {
 
             try {
                 user.state = User::RM_USER_STATE_ACTIVE;
-                std::time_t now = time(nullptr);
+                const std::time_t now = time(nullptr);
 
                 nlohmann::json data = nlohmann::json::parse(request.body);
 
@@ -122,8 +127,8 @@ int WebServer::init() {
                 return;
             }
 
-            response.status = static_cast<httplib::StatusCode>( parentServer->executeJob([this, &user] { return  parentServer->userDatabase->updateTelemetry(user); }));
-             parentServer->executeJob([this, &user] { return  parentServer->sendTelemetryUpdate(user); });
+            response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &user] { return parentServer->userDatabase->updateTelemetry(user); }));
+            parentServer->executeJob([this, &user] { return parentServer->sendTelemetryUpdate(user); });
 
             RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
         });
@@ -141,16 +146,17 @@ int WebServer::init() {
                 }
                 token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Authorization").substr(7));
             } catch (std::exception &e) {
+                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: {}", e.what()));
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_UNAUTHORIZED);
                 return;
             }
 
-            if ((response.status = static_cast<httplib::StatusCode>( parentServer->executeJob([this, &token] { return  parentServer->userDatabase->validateRegisteredUserByToken(token); }))) != RM_HTTP_CODE_OK) {
+            if ((response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &token] { return parentServer->userDatabase->validateRegisteredUserByToken(token); }))) != RM_HTTP_CODE_OK) {
                 return;
             }
 
             std::vector<User> users;
-            if ((response.status = static_cast<httplib::StatusCode>( parentServer->executeJob([this, &users] { return  parentServer->userDatabase->getAllUsers(users); }))) != RM_HTTP_CODE_OK) {
+            if ((response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &users] { return parentServer->userDatabase->getAllUsers(users); }))) != RM_HTTP_CODE_OK) {
                 return;
             }
 
@@ -190,6 +196,66 @@ int WebServer::init() {
 
             RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), token.str()));
         });
+
+        webServer->Get("/api/getOTP", [this](const httplib::Request &request, httplib::Response &response) {
+#ifdef RM_DEBUG
+            beginElapsedTimer();
+#endif
+
+            UUIDv4::UUID token;
+
+            try {
+                if (request.get_header_value("Authorization").substr(0, 7) != "Bearer ") {
+                    throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Authorization").substr(0, 7) + std::string("\""));
+                }
+                token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Authorization").substr(7));
+            } catch (std::exception &e) {
+                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: {}", e.what()));
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_UNAUTHORIZED);
+                return;
+            }
+
+            if ((response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &token] { return parentServer->userDatabase->validateRegisteredUserByToken(token); }))) != RM_HTTP_CODE_OK) {
+                return;
+            }
+
+            std::string otpString;
+            intToHexString(otpPool->getOTP(token), otpString);
+            response.set_content(nlohmann::json({{"otp", otpString}}).dump(), "application/json");
+
+            RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), token.str()));
+        });
+
+        webServer->Get("/api/getToken", [this](const httplib::Request &request, httplib::Response &response) {
+#ifdef RM_DEBUG
+            beginElapsedTimer();
+#endif
+
+            OTP otp;
+            UUIDv4::UUID token;
+
+            try {
+                if (request.get_header_value("Authorization").substr(0, 7) != "Bearer ") {
+                    throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Authorization").substr(0, 7) + std::string("\""));
+                }
+                if (not hexStringToInt(request.get_header_value("Authorization").substr(7), otp, 8)) {
+                    throw std::runtime_error(std::string("Invalid OTP \"") + request.get_header_value("Authorization").substr( 7) + std::string("\""));
+                }
+                if ((token = otpPool->getToken(otp)) == UUIDv4::UUID(0, 0)) {
+                    throw std::runtime_error(std::string("Incorrect OTP \"") + request.get_header_value("Authorization").substr( 7) + std::string("\""));
+                }
+            } catch (std::exception &e) {
+                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: {}", e.what()));
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_UNAUTHORIZED);
+                return;
+            }
+
+            response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_OK);
+            response.set_content(nlohmann::json({{"token", token.str()}}).dump(), "application/json");
+
+            RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), token.str()));
+        });
+
 
 #ifdef RM_SSL_SUPPORT
         std::string webSocketEndpoint = "/api/wss";

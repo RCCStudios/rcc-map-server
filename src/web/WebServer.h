@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OTPPool.h"
 #include "../common.h"
 
 #include <SQLiteCpp/SQLiteCpp.h>
@@ -22,7 +23,8 @@ private:
     std::unique_ptr<httplib::Server> webServer = nullptr;
 #endif
 
-    std::list<httplib::ws::WebSocket *> openWebSockets;
+    std::unique_ptr<OTPPool> otpPool = nullptr;
+    std::list<httplib::ws::WebSocket *> openWebSockets{};
 
     Server *parentServer = nullptr;
     int code = 0;
