@@ -3,6 +3,7 @@
 #include "../common.h"
 
 #include "../data/UserDatabase.h"
+#include "../web/WebServer.h"
 #include "Config.h"
 #include "Job.h"
 
@@ -19,18 +20,14 @@
 #include <csignal>
 
 class Server {
+    friend class UserDatabase;
+    friend class WebServer;
 
     RM_DECLARE_SINGLETON(Server)
 
 private:
     UserDatabase *userDatabase = nullptr;
-
-#ifdef RM_SSL_SUPPORT
-    std::unique_ptr<httplib::SSLServer> webServer = nullptr;
-#else
-    std::unique_ptr<httplib::Server> webServer = nullptr;
-#endif
-
+    WebServer *webServer = nullptr;
 
     void inputThreadLoop();
     void workerThreadLoop();
@@ -78,25 +75,11 @@ private:
     std::string inputString;
     std::vector<std::string> inputArgs;
 
-    std::list<httplib::ws::WebSocket*> openWebSockets;
-
     std::atomic<std::time_t> nextDump = 0;
 
     Config config{};
 
     std::atomic_int code = 0;
-
-#ifdef RM_DEBUG
-    std::chrono::steady_clock::time_point begin;
-
-    void beginElapsedTimer() {
-        begin = std::chrono::steady_clock::now();
-    }
-
-    [[nodiscard]] int endElapsedTimer() const {
-        return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - begin).count();
-    }
-#endif
 
 public:
     void terminate(int signal = 0);

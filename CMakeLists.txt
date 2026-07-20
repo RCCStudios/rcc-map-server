@@ -13,7 +13,7 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif ()
 
 add_definitions(-DRM_VERSION="0.0.3")
-add_definitions(-DRM_BUILD="260719b")
+add_definitions(-DRM_BUILD="260720a")
 add_definitions(-DRM_BUILD_DATE=__DATE__)
 
 set(CMAKE_CXX_STANDARD 20)

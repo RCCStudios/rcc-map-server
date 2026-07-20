@@ -1,11 +1,12 @@
 #include "UserDatabase.h"
 
+#include "../server/Server.h"
 #include "../common.h"
 
 std::unique_ptr<UserDatabase> UserDatabase::singletonInstance = nullptr;
 bool UserDatabase::isInitialized = false;
 
-int UserDatabase::init(const std::string &path) {
+int UserDatabase::init() {
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing UserDatabase object");
 
     if (isInitialized) {
@@ -14,17 +15,16 @@ int UserDatabase::init(const std::string &path) {
     }
 
     isInitialized = true;
-
-    dbPath = path;
+    parentServer = Server::getInstance();
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing SQLite DB");
 
-    if (not std::filesystem::exists(dbPath)) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("No user database file found. A new one will be created at path \"{}\"", dbPath));
+    if (not std::filesystem::exists(parentServer->config.userDatabasePath)) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("No user database file found. A new one will be created at path \"{}\"", parentServer->config.userDatabasePath));
 
         try {
             std::filesystem::create_directory("data");
-            db = std::make_unique<SQLite::Database>(dbPath, SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
+            db = std::make_unique<SQLite::Database>(parentServer->config.userDatabasePath, SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
 
             std::stringstream stream;
             stream << R"(CREATE TABLE "users" ("tokenX" INTEGER, "tokenY" INTEGER, "id" INTEGER UNIQUE, "key" INTEGER, "name" TEXT, "pfpPath" TEXT, "state" INTEGER, )";
@@ -41,7 +41,7 @@ int UserDatabase::init(const std::string &path) {
             return RM_ERROR_CODE_LIB_SQLITE;
         }
     } else {
-        db = std::make_unique<SQLite::Database>(dbPath, SQLite::OPEN_READWRITE);
+        db = std::make_unique<SQLite::Database>(parentServer->config.userDatabasePath, SQLite::OPEN_READWRITE);
     }
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "SQLite DB initialized");
@@ -85,7 +85,7 @@ int UserDatabase::destroy() {
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Destroying UserDatabase object");
 
     if (not isInitialized) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, "Cannot destroy a Database object since it is not initialized");
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, "Cannot destroy a UserDatabase object since it is not initialized");
         return RM_ERROR_CODE_NOT_INITIALIZED;
     }
 

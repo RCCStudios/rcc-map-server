@@ -208,20 +208,7 @@ void Server::inputThreadLoop() {
 }
 
 void Server::webServerThreadLoop() {
-#ifdef RM_SSL_SUPPORT
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Using HTTPS protocol");
-#else
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Using HTTP protocol");
-#endif
-
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Listening on {}:{}", config.serverListenToAddress, config.serverListenToPort));
-    try {
-        webServer->listen(config.serverListenToAddress, config.serverListenToPort);
-    } catch (std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Web server thread encountered an unhandled exception. Program execution will be terminated: {}", e.what()));
-        code = RM_ERROR_CODE_UNKNOWN;
-        terminate();
-    }
+    webServer->listen();
 }
 
 void Server::executeJobAsync(const std::function<int()> &job) {
@@ -375,7 +362,7 @@ int Server::loadConfig() {
 
 int Server::loadDatabases() {
     userDatabase = UserDatabase::getInstance();
-    if ((code = userDatabase->init(config.userDatabasePath))) {
+    if ((code = userDatabase->init())) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to initialize a UserDatabase object (error code {}). See above for the errors", static_cast<int>(code)));
         return code;
     }
@@ -383,224 +370,11 @@ int Server::loadDatabases() {
 }
 
 int Server::loadWebServer() {
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Loading web server");
-
-    try {
-#ifdef RM_SSL_SUPPORT
-        if (not std::filesystem::exists(config.serverCertPath)) {
-            RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("No certificate file found at path \"{}\"", config.serverCertPath));
-        }
-        if (not std::filesystem::exists(config.serverPrivateKeyPath)) {
-            RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, fmt::format("No private key file found at path \"{}\"", config.serverPrivateKeyPath));
-        }
-
-        webServer = std::make_unique<httplib::SSLServer>(config.serverCertPath.c_str(), config.serverPrivateKeyPath.c_str());
-#else
-        webServer = std::make_unique<httplib::Server>();
-#endif
-
-        webServer->Post("/api/register", [this](const httplib::Request &request, httplib::Response &response) {
-#ifdef RM_DEBUG
-            beginElapsedTimer();
-#endif
-
-            User user{};
-            std::string keyStr;
-
-            try {
-                nlohmann::json data = nlohmann::json::parse(request.body);
-                keyStr = data["key"].get<std::string>();
-                user.name = data["name"].get<std::string>();
-            } catch (std::exception &e) {
-                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}", e.what()));
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
-                return;
-            }
-
-            if (not hexStringToInt(keyStr, user.key, 8)) {
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
-                return;
-            }
-
-            if ((response.status = static_cast<httplib::StatusCode>(executeJob([this, &user] { return userDatabase->finishUserRegistration(user); }))) == RM_HTTP_CODE_OK) {
-                response.set_content(nlohmann::json({{"token", user.token.str()}}).dump(), "application/json");
-            }
-
-            RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
-        });
-
-        webServer->Post("/api/sendTelemetry", [this](const httplib::Request &request, httplib::Response &response) {
-#ifdef RM_DEBUG
-            beginElapsedTimer();
-#endif
-
-            response.set_content(nlohmann::json({{"timeToNextSnapshot", config.snapshotInterval}}).dump(), "application/json");
-            User user{};
-
-            try {
-                if (request.get_header_value("Authorization").substr(0, 7) != "Bearer ") {
-                    throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Authorization").substr(0, 7) + std::string("\""));
-                }
-                user.token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Authorization").substr(7));
-            } catch (std::exception &e) {
-                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: {}", e.what()));
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_UNAUTHORIZED);
-                return;
-            }
-
-            try {
-                user.state = User::RM_USER_STATE_ACTIVE;
-                std::time_t now = time(nullptr);
-
-                nlohmann::json data = nlohmann::json::parse(request.body);
-
-                for (const TelemetryProperty &prop: Telemetry::schema) {
-                    if (data[prop.name].is_null()) {
-                        continue;
-                    } else if (data[prop.name].type() != prop.type) {
-                        throw std::runtime_error(std::string("Wrong type for ") + prop.name);
-                    }
-                    switch (prop.type) {
-                        case nlohmann::json::value_t::number_integer:
-                            user.telemetry.data.push_back({std::bit_cast<int64_t>(data[prop.name].get<int64_t>()), now, prop.name, prop.type});
-                            break;
-                        case nlohmann::json::value_t::number_unsigned:
-                            user.telemetry.data.push_back({std::bit_cast<int64_t>(data[prop.name].get<uint64_t>()), now, prop.name, prop.type});
-                            break;
-                        case nlohmann::json::value_t::number_float:
-                            user.telemetry.data.push_back({std::bit_cast<int64_t>(data[prop.name].get<double>()), now, prop.name, prop.type});
-                            break;
-                        default:
-                            throw std::runtime_error(std::string("Unsupported type ") + data[prop.name].type_name());
-                    }
-                }
-
-                // if (data["state"].get<int>() >= User::State::RM_USER_STATE_ENUM_COUNT) {
-                //     throw std::exception();
-                // }
-            } catch (std::exception &e) {
-                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}", e.what()));
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
-                return;
-            }
-
-            response.status = static_cast<httplib::StatusCode>(executeJob([this, &user] { return userDatabase->updateTelemetry(user); }));
-            executeJob([this, &user] { return sendTelemetryUpdate(user); });
-
-            RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
-        });
-
-        webServer->Get("/api/getTelemetry", [this](const httplib::Request &request, httplib::Response &response) {
-#ifdef RM_DEBUG
-            beginElapsedTimer();
-#endif
-
-            UUIDv4::UUID token;
-
-            try {
-                if (request.get_header_value("Authorization").substr(0, 7) != "Bearer ") {
-                    throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Authorization").substr(0, 7) + std::string("\""));
-                }
-                token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Authorization").substr(7));
-            } catch (std::exception &e) {
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_UNAUTHORIZED);
-                return;
-            }
-
-            if ((response.status = static_cast<httplib::StatusCode>(executeJob([this, &token] { return userDatabase->validateRegisteredUserByToken(token); }))) != RM_HTTP_CODE_OK) {
-                return;
-            }
-
-            std::vector<User> users;
-            if ((response.status = static_cast<httplib::StatusCode>(executeJob([this, &users] { return userDatabase->getAllUsers(users); }))) != RM_HTTP_CODE_OK) {
-                return;
-            }
-
-            nlohmann::json data = nlohmann::json::array();
-
-            for (const User &user: users) {
-                if (user.state != User::State::RM_USER_STATE_ACTIVE) {
-                    continue;
-                }
-
-                nlohmann::json userData({
-                    {"id", user.id},
-                    {"name", user.name},
-                    {"pfpPath", user.pfpPath}
-                });
-
-                for (const TelemetryProperty &prop: user.telemetry.data) {
-                    switch (prop.type) {
-                        case nlohmann::json::value_t::number_integer:
-                            userData[prop.name] = {{"value", std::bit_cast<int64_t>(prop.value)}, {"timestamp", prop.timestamp}};
-                            break;
-                        case nlohmann::json::value_t::number_unsigned:
-                            userData[prop.name] = {{"value", std::bit_cast<uint64_t>(prop.value)}, {"timestamp", prop.timestamp}};
-                            break;
-                        case nlohmann::json::value_t::number_float:
-                            userData[prop.name] = {{"value", std::bit_cast<double>(prop.value)}, {"timestamp", prop.timestamp}};
-                            break;
-                        default:
-                            userData[prop.name] = nullptr;
-                    }
-                }
-
-                data.push_back(userData);
-            }
-
-            response.set_content(data.dump(), "application/json");
-
-            RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), token.str()));
-        });
-
-#ifdef RM_SSL_SUPPORT
-        std::string webSocketEndpoint = "/api/wss";
-#else
-        std::string webSocketEndpoint = "/api/ws";
-#endif
-        webServer->WebSocket(
-            webSocketEndpoint,
-            [this](const httplib::Request &request, httplib::ws::WebSocket &webSocket) {
-                UUIDv4::UUID token;
-
-                try {
-                    if (request.get_header_value("Sec-WebSocket-Protocol").substr(0, 7) != "bearer.") {
-                        throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Sec-WebSocket-Protocol").substr(0, 7) + std::string("\""));
-                    }
-                    token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Sec-WebSocket-Protocol").substr(7));
-                } catch (std::exception &e) {
-                    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Websocket handshake auth failed: {}", e.what()));
-                    webSocket.close(httplib::ws::CloseStatus::PolicyViolation, fmt::format("Authorization failed: {}", RM_HTTP_CODE_UNAUTHORIZED));
-                    return;
-                }
-
-                if (int responseCode = 0; (responseCode = executeJob([this, &token] { return userDatabase->validateRegisteredUserByToken(token); })) != RM_HTTP_CODE_OK) {
-                    webSocket.close(httplib::ws::CloseStatus::PolicyViolation, fmt::format("Authorization failed: {}", responseCode));
-                    return;
-                }
-
-                openWebSockets.push_back(&webSocket);
-                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("WebSocket connection opened (pointer {})", static_cast<void *>(&webSocket)));
-
-                std::string _;
-                while (webSocket.is_open()) {
-                    if (webSocket.read(_) == httplib::ws::ReadResult::Fail) {
-                        break;
-                    }
-                }
-
-                openWebSockets.remove(&webSocket);
-                webSocket.close(httplib::ws::CloseStatus::Normal, "Shutting down gracefully");
-                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("WebSocket connection closed (pointer {})", static_cast<void *>(&webSocket)));
-            },
-            [](const std::vector<std::string> &protocols) { return protocols[0]; });
-    } catch (std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to load the web server: {}", e.what()));
-        return RM_ERROR_CODE_LIB_HTTP;
+    webServer = WebServer::getInstance();
+    if ((code = webServer->init())) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_FATAL, RM_LOG_AUTO_PREFIX, fmt::format("Failed to initialize a WebServer object (error code {}). See above for the errors", static_cast<int>(code)));
+        return code;
     }
-
-    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Web server loaded");
-
     return 0;
 }
 
@@ -615,23 +389,17 @@ int Server::unloadDatabases() {
 }
 
 int Server::unloadWebServer() {
-    if (webServer == nullptr) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, "Cannot destroy a httplib::SSLServer object since it is not initialized");
-        return RM_ERROR_CODE_NOT_INITIALIZED;
+    if ((code = webServer->destroy())) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to destroy a WebServer object (error code {}). See above for the errors", static_cast<int>(code)));
+        return code;
     }
 
-    webServer->stop();
-
-    for (httplib::ws::WebSocket *const webSocket: openWebSockets) {
-        webSocket->close(httplib::ws::CloseStatus::GoingAway, "Server is shutting down");
-    }
-    openWebSockets.clear();
-
+    WebServer::releaseInstance();
     return 0;
 }
 
 int Server::sendTelemetryUpdate(User &user) {
-    if (openWebSockets.empty()) {
+    if (not webServer->hasOpenWebsockets()) {
         return 0;
     }
 
@@ -658,14 +426,7 @@ int Server::sendTelemetryUpdate(User &user) {
         }
     }
 
-    const std::string message = data.dump();
-
-    for (httplib::ws::WebSocket *const webSocket: openWebSockets) {
-        if (webSocket->is_open()) {
-            webSocket->send(message);
-        }
-    }
-    return 0;
+    return webServer->sendToWebSockets(data.dump());
 }
 
 int Server::scheduleNextDump() {

@@ -11,11 +11,12 @@
 #include <string>
 #include <chrono>
 
+class Server;
+
 class UserDatabase {
-    RM_DECLARE_SINGLETON(UserDatabase, const std::string& path)
+    RM_DECLARE_SINGLETON(UserDatabase)
 
 private:
-    std::string dbPath;
     std::unique_ptr<SQLite::Database> db;
 
     UUIDv4::UUIDGenerator<std::mt19937_64> UUIDGenerator;
@@ -37,6 +38,7 @@ private:
 
     // no updateTelemetryQuery for you, it is compiled in-place
 
+    Server* parentServer = nullptr;
     int code = 0;
 
 #ifdef RM_DEBUG
