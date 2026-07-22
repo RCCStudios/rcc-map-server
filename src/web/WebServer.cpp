@@ -23,7 +23,7 @@ int WebServer::init() {
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing OTP pool");
 
-    otpPool = std::make_unique<OTPPool>(parentServer->config.otpTimeToLive);
+    otpPool = std::make_unique<OTPPool>(parentServer->config.otpPoolMaxSize, parentServer->config.otpTimeToLive);
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "OTP pool initialized");
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing HTTPlib WebServer");
@@ -219,8 +219,13 @@ int WebServer::init() {
                 return;
             }
 
+            OTP otp;
+            if ((otp = otpPool->getOTP(token)) == 0) {
+                response.status = RM_HTTP_CODE_INTERNAL_ERROR;
+                return;
+            }
             std::string otpString;
-            intToHexString(otpPool->getOTP(token), otpString);
+            intToHexString(otp, otpString);
             response.set_content(nlohmann::json({{"otp", otpString}}).dump(), "application/json");
 
             RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), token.str()));
@@ -318,12 +323,13 @@ int WebServer::destroy() {
     }
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Stopping web interactions");
-    webServer->stop();
-
     for (httplib::ws::WebSocket *const webSocket: openWebSockets) {
         webSocket->close(httplib::ws::CloseStatus::GoingAway, "Server is shutting down");
     }
     openWebSockets.clear();
+
+    webServer->wait_until_ready();
+    webServer->stop();
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Web interactions stopped");
     isInitialized = false;

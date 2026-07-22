@@ -45,6 +45,5 @@ public:
     [[nodiscard]] bool hasOpenWebsockets() const { return not openWebSockets.empty(); }
 
     int listen();
-
     int sendToWebSockets(const std::string &message);
 };

@@ -11,6 +11,8 @@ struct Config {
     std::string serverPrivateKeyPath = "web/key.pem";
     std::string serverListenToAddress = "0.0.0.0";
     uint16_t serverListenToPort = 443;
+
+    uint32_t otpPoolMaxSize = 1024;
     uint32_t otpTimeToLive = 60;
 
     uint32_t snapshotInterval = 180;
