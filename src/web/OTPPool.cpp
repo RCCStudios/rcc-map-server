@@ -13,18 +13,6 @@ OTPPool::~OTPPool() {
 OTP OTPPool::getOTP(UUIDv4::UUID token) {
     std::lock_guard<std::mutex> lock(mutex);
 
-    if (pool.size() > maxSize) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, "OTP pool overloaded");
-        return 0;
-    }
-
-    const UUIDv4::UUID randomKey = randomGenerator.getUUID();
-    char bytes[16];
-    randomKey.bytes(bytes);
-
-    OTP otp;
-    memcpy(&otp, bytes, 4);
-
     const std::time_t now = std::time(nullptr);
 
     while (true) {
@@ -37,6 +25,18 @@ OTP OTPPool::getOTP(UUIDv4::UUID token) {
         }
         break;
     }
+
+    if (pool.size() > maxSize) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, "OTP pool overloaded");
+        return 0;
+    }
+
+    const UUIDv4::UUID randomKey = randomGenerator.getUUID();
+    char bytes[16];
+    randomKey.bytes(bytes);
+
+    OTP otp;
+    memcpy(&otp, bytes, 4);
 
     pool.emplace_front(otp, token, now + ttl);
     return otp;

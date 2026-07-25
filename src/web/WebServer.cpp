@@ -197,7 +197,7 @@ int WebServer::init() {
             RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), token.str()));
         });
 
-        webServer->Get("/api/getOTP", [this](const httplib::Request &request, httplib::Response &response) {
+        webServer->Get("/api/getOtp", [this](const httplib::Request &request, httplib::Response &response) {
 #ifdef RM_DEBUG
             beginElapsedTimer();
 #endif
