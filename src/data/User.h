@@ -19,7 +19,7 @@ struct User {
     uint32_t key;
 
     std::string name;
-    std::string pfpPath;
+    std::string avatarPath;
 
     State state = RM_USER_STATE_PENDING_REGISTRATION;
     Telemetry telemetry{};

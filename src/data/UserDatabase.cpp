@@ -27,7 +27,7 @@ int UserDatabase::init() {
             db = std::make_unique<SQLite::Database>(parentServer->config.userDatabasePath, SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
 
             std::stringstream stream;
-            stream << R"(CREATE TABLE "users" ("tokenX" INTEGER, "tokenY" INTEGER, "id" INTEGER UNIQUE, "key" INTEGER, "name" TEXT, "pfpPath" TEXT, "state" INTEGER, )";
+            stream << R"(CREATE TABLE "users" ("tokenX" INTEGER, "tokenY" INTEGER, "id" INTEGER UNIQUE, "key" INTEGER, "name" TEXT, "avatarPath" TEXT, "state" INTEGER, )";
             for (const TelemetryProperty &prop: Telemetry::schema) {
                 stream << "\"" << prop.name << "\" INTEGER, \"" << prop.name << "TS\" INTEGER, ";
             }
@@ -66,11 +66,11 @@ int UserDatabase::init() {
         finishUserRegistrationQuery2 = std::make_unique<SQLite::Statement>(*db, "UPDATE users SET name = ?, state = ? WHERE key = ?");
         terminateUserRegistrationQuery = std::make_unique<SQLite::Statement>(*db, "UPDATE users set STATE = ? WHERE key = ?");
 
-        getUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT id, key, name, pfpPath, state, " + telemetrySchemaString + " FROM users WHERE tokenX = ? and tokenY = ?");
+        getUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT id, key, name, avatarPath, state, " + telemetrySchemaString + " FROM users WHERE tokenX = ? and tokenY = ?");
         getUserIDByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT id FROM users WHERE tokenX = ? and tokenY = ?");
         retireUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "UPDATE users set STATE = ? WHERE tokenX = ? and tokenY = ?");
 
-        getAllUsersQuery = std::make_unique<SQLite::Statement>(*db, "SELECT tokenX, tokenY, id, key, name, pfpPath, state, " + telemetrySchemaString + " FROM users");
+        getAllUsersQuery = std::make_unique<SQLite::Statement>(*db, "SELECT tokenX, tokenY, id, key, name, avatarPath, state, " + telemetrySchemaString + " FROM users");
     } catch (std::exception &e) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to precompile queries: {}", e.what()));
         return RM_ERROR_CODE_LIB_SQLITE;
@@ -318,7 +318,7 @@ int UserDatabase::getUserByToken(User &user) {
         user.id = getUserByTokenQuery->getColumn(0).getInt();
         user.key = getUserByTokenQuery->getColumn(1).getInt();
         user.name = getUserByTokenQuery->getColumn(2).getString();
-        user.pfpPath = getUserByTokenQuery->getColumn(3).getString();
+        user.avatarPath = getUserByTokenQuery->getColumn(3).getString();
         user.state = static_cast<User::State>(getUserByTokenQuery->getColumn(4).getInt());
 
         for (int propIndex = 0; propIndex < Telemetry::schema.size(); propIndex++) {
@@ -419,7 +419,7 @@ int UserDatabase::getAllUsers(std::vector<User> &users) {
             user.id = getAllUsersQuery->getColumn(2).getInt();
             user.key = getAllUsersQuery->getColumn(3).getInt();
             user.name = getAllUsersQuery->getColumn(4).getString();
-            user.pfpPath = getAllUsersQuery->isColumnNull(5) ? "" : getAllUsersQuery->getColumn(5).getString();
+            user.avatarPath = getAllUsersQuery->isColumnNull(5) ? "" : getAllUsersQuery->getColumn(5).getString();
             user.state = static_cast<User::State>(getAllUsersQuery->getColumn(6).getInt());
 
             for (int propIndex = 0; propIndex < Telemetry::schema.size(); propIndex++) {

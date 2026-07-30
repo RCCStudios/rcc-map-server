@@ -72,7 +72,7 @@ int WebServer::init() {
             RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
         });
 
-        webServer->Post("/api/sendTelemetry", [this](const httplib::Request &request, httplib::Response &response) {
+        webServer->Post("/api/telemetry", [this](const httplib::Request &request, httplib::Response &response) {
 #ifdef RM_DEBUG
             beginElapsedTimer();
 #endif
@@ -133,7 +133,7 @@ int WebServer::init() {
             RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
         });
 
-        webServer->Get("/api/getTelemetry", [this](const httplib::Request &request, httplib::Response &response) {
+        webServer->Get("/api/telemetry", [this](const httplib::Request &request, httplib::Response &response) {
 #ifdef RM_DEBUG
             beginElapsedTimer();
 #endif
@@ -170,7 +170,7 @@ int WebServer::init() {
                 nlohmann::json userData({
                     {"id", user.id},
                     {"name", user.name},
-                    {"pfpPath", user.pfpPath}
+                    {"avatarPath", user.avatarPath}
                 });
 
                 for (const TelemetryProperty &prop: user.telemetry.data) {
@@ -197,7 +197,7 @@ int WebServer::init() {
             RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), token.str()));
         });
 
-        webServer->Get("/api/getOtp", [this](const httplib::Request &request, httplib::Response &response) {
+        webServer->Get("/api/otp", [this](const httplib::Request &request, httplib::Response &response) {
 #ifdef RM_DEBUG
             beginElapsedTimer();
 #endif
@@ -231,7 +231,7 @@ int WebServer::init() {
             RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), token.str()));
         });
 
-        webServer->Get("/api/getToken", [this](const httplib::Request &request, httplib::Response &response) {
+        webServer->Get("/api/token", [this](const httplib::Request &request, httplib::Response &response) {
 #ifdef RM_DEBUG
             beginElapsedTimer();
 #endif
