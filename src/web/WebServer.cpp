@@ -55,7 +55,7 @@ int WebServer::init() {
                 keyStr = data["key"].get<std::string>();
                 user.name = data["name"].get<std::string>();
             } catch (std::exception &e) {
-                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}", e.what()));
+                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}; body: {}", e.what(), request.body));
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
                 return;
             }
@@ -122,7 +122,7 @@ int WebServer::init() {
                 //     throw std::exception();
                 // }
             } catch (std::exception &e) {
-                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}", e.what()));
+                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}; body: {}", e.what(), request.body));
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
                 return;
             }
