@@ -113,6 +113,9 @@ int WebServer::init() {
                         case nlohmann::json::value_t::number_float:
                             user.telemetry.data.push_back({std::bit_cast<int64_t>(data[prop.name].get<double>()), now, prop.name, prop.type});
                             break;
+                        case nlohmann::json::value_t::boolean:
+                            user.telemetry.data.push_back({static_cast<int64_t>(data[prop.name].get<bool>()), now, prop.name, prop.type});
+                            break;
                         default:
                             throw std::runtime_error(std::string("Unsupported type ") + data[prop.name].type_name());
                     }
@@ -184,6 +187,9 @@ int WebServer::init() {
                         case nlohmann::json::value_t::number_float:
                             userData[prop.name] = {{"value", std::bit_cast<double>(prop.value)}, {"timestamp", prop.timestamp}};
                             break;
+                        case nlohmann::json::value_t::boolean:
+                            userData[prop.name] = {{"value", static_cast<bool>(prop.value)}, {"timestamp", prop.timestamp}};
+                            break;
                         default:
                             userData[prop.name] = nullptr;
                     }
@@ -244,10 +250,10 @@ int WebServer::init() {
                     throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Authorization").substr(0, 7) + std::string("\""));
                 }
                 if (not hexStringToInt(request.get_header_value("Authorization").substr(7), otp, 8)) {
-                    throw std::runtime_error(std::string("Invalid OTP \"") + request.get_header_value("Authorization").substr( 7) + std::string("\""));
+                    throw std::runtime_error(std::string("Invalid OTP \"") + request.get_header_value("Authorization").substr(7) + std::string("\""));
                 }
                 if ((token = otpPool->getToken(otp)) == UUIDv4::UUID(0, 0)) {
-                    throw std::runtime_error(std::string("Incorrect OTP \"") + request.get_header_value("Authorization").substr( 7) + std::string("\""));
+                    throw std::runtime_error(std::string("Incorrect OTP \"") + request.get_header_value("Authorization").substr(7) + std::string("\""));
                 }
             } catch (std::exception &e) {
                 RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: {}", e.what()));

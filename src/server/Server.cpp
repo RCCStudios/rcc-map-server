@@ -427,6 +427,9 @@ int Server::sendTelemetryUpdate(User &user) {
             case nlohmann::json::value_t::number_float:
                 data[prop.name] = std::bit_cast<double>(prop.value);
                 break;
+            case nlohmann::json::value_t::boolean:
+                data[prop.name] = static_cast<bool>(prop.value);
+                break;
             default:
                 data[prop.name] = nullptr;
         }
