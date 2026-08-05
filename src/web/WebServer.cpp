@@ -221,7 +221,7 @@ int WebServer::init() {
 
             OTP otp;
             if ((otp = otpPool->getOTP(token)) == 0) {
-                response.status = RM_HTTP_CODE_INTERNAL_ERROR;
+                response.status = RM_HTTP_CODE_TOO_MANY_REQUESTS;
                 return;
             }
             std::string otpString;

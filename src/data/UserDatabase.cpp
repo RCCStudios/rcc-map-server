@@ -137,7 +137,7 @@ int UserDatabase::beginUserRegistration(OTP &otp) {
 
     if ((otp = otpPool->getOTP(UUIDGenerator.getUUID())) == 0) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to get a registration OTP"));
-        return RM_HTTP_CODE_INTERNAL_ERROR;
+        return RM_HTTP_CODE_TOO_MANY_REQUESTS;
     }
 
     RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns", endElapsedTimer()));

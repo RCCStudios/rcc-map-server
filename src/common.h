@@ -54,7 +54,8 @@ public:                                                            \
 
 #define RM_HTTP_CODE_OK 200
 #define RM_HTTP_CODE_BAD_REQUEST 400
-#define RM_HTTP_CODE_UNAUTHORIZED 418
+#define RM_HTTP_CODE_UNAUTHORIZED 401
+#define RM_HTTP_CODE_TOO_MANY_REQUESTS 429
 #define RM_HTTP_CODE_INTERNAL_ERROR 500
 
 #define RM_ERROR_CODE_THRESHOLD 600
