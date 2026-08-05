@@ -16,7 +16,6 @@ struct User {
 
     UUIDv4::UUID token;
     uint32_t id;
-    uint32_t key;
 
     std::string name;
     std::string avatarPath;

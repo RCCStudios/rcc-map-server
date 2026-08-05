@@ -12,8 +12,10 @@ struct Config {
     std::string serverListenToAddress = "0.0.0.0";
     uint16_t serverListenToPort = 443;
 
-    uint32_t otpPoolMaxSize = 1024;
-    uint32_t otpTimeToLive = 60;
+    uint32_t otpWebServerPoolMaxSize = 1024;
+    uint32_t otpWebServerTimeToLive = 60;
+    uint32_t otpRegistrationPoolMaxSize = 1024;
+    uint32_t otpRegistrationTimeToLive = 86400;
 
     uint32_t snapshotInterval = 180;
     uint32_t dumpInterval = 86400;

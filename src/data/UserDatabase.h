@@ -2,6 +2,7 @@
 
 #include "../common.h"
 
+#include "../server/OTPPool.h"
 #include "User.h"
 #include "TelemetryProperty.h"
 
@@ -21,22 +22,19 @@ private:
 
     UUIDv4::UUIDGenerator<std::mt19937_64> UUIDGenerator;
 
+    std::unique_ptr<OTPPool> otpPool = nullptr;
+
     std::unique_ptr<SQLite::Statement> validateUnregisteredUserByKeyQuery;
     std::unique_ptr<SQLite::Statement> validateRegisteredUserByTokenQuery;
 
-    std::unique_ptr<SQLite::Statement> beginUserRegistrationQuery1;
-    std::unique_ptr<SQLite::Statement> beginUserRegistrationQuery2;
     std::unique_ptr<SQLite::Statement> finishUserRegistrationQuery1;
     std::unique_ptr<SQLite::Statement> finishUserRegistrationQuery2;
-    std::unique_ptr<SQLite::Statement> terminateUserRegistrationQuery;
 
     std::unique_ptr<SQLite::Statement> getUserByTokenQuery;
     std::unique_ptr<SQLite::Statement> getUserIDByTokenQuery;
     std::unique_ptr<SQLite::Statement> retireUserByTokenQuery;
 
     std::unique_ptr<SQLite::Statement> getAllUsersQuery;
-
-    // no updateTelemetryQuery for you, it is compiled in-place
 
     Server* parentServer = nullptr;
     int code = 0;
@@ -54,12 +52,10 @@ private:
 #endif
 
 public:
-    int validateUnregisteredUserByKey(uint32_t key); // used in other methods
     int validateRegisteredUserByToken(const UUIDv4::UUID& token); // used in other methods
 
-    int beginUserRegistration(uint32_t key = 0); // from terminal user new
-    int finishUserRegistration(User &user); // from HTTP /api/register
-    int terminateUserRegistration(uint32_t key = 0); // from terminal user retire-new
+    int beginUserRegistration(OTP &otp); // from terminal user new
+    int finishUserRegistration(OTP otp, User &user); // from HTTP /api/register
 
     int getUserByToken(User &user); // reserve for later
     int getUserIDByToken(User &user); // from job sendTelemetryUpdate

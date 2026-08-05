@@ -1,7 +1,7 @@
 #pragma once
 
-#include "OTPPool.h"
 #include "../common.h"
+#include "../server/OTPPool.h"
 
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <httplib.h>

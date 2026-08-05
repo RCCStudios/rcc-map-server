@@ -260,28 +260,13 @@ void Server::processInput() {
         }
 
         if (inputArgs[1] == "new") {
-            uint32_t key = 0;
-            if (inputArgs.size() == 3) {
-                if (not hexStringToInt(inputArgs[2], key, 8)) {
-                    RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": string to key conversion failed", inputString));
-                    return;
-                }
+            OTP otp = 0;
+            if (executeJob([this, &otp] { return userDatabase->beginUserRegistration(otp); }) != RM_HTTP_CODE_OK) {
+                RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, "Command execution failed");
             }
-            executeJob([this, key] { return userDatabase->beginUserRegistration(key); });
-            return;
-        }
-
-        if (inputArgs[1] == "retire-new") {
-            if (inputArgs.size() == 2) {
-                RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": no argument found", inputString));
-                return;
-            }
-            uint32_t key = 0;
-            if (not hexStringToInt(inputArgs[2], key, 8)) {
-                RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": string to key conversion failed", inputString));
-                return;
-            }
-            executeJob([this, key] { return userDatabase->terminateUserRegistration(key); });
+            std::string strOtp;
+            intToHexString(otp, strOtp);
+            RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("New OTP for user registration created: {}. Enter it in app till {} to finish registration", strOtp, unixtimeToIso8601(time(nullptr) + config.otpRegistrationTimeToLive)));
             return;
         }
 
@@ -324,8 +309,10 @@ int Server::loadConfig() {
             YAMLConfig["server_listen_to_address"] = config.serverListenToAddress;
             YAMLConfig["server_listen_to_port"] = config.serverListenToPort;
 
-            YAMLConfig["otp_pool_max_size"] = config.otpPoolMaxSize;
-            YAMLConfig["otp_time_to_live"] = config.otpTimeToLive;
+            YAMLConfig["otp_web_server_pool_max_size"] = config.otpWebServerPoolMaxSize;
+            YAMLConfig["otp_web_server_time_to_live"] = config.otpWebServerTimeToLive;
+            YAMLConfig["otp_registration_pool_max_size"] = config.otpRegistrationPoolMaxSize;
+            YAMLConfig["otp_registration_time_to_live"] = config.otpRegistrationTimeToLive;
 
             YAMLConfig["snapshot_interval"] = config.snapshotInterval;
             YAMLConfig["dump_interval"] = config.dumpInterval;
@@ -350,8 +337,10 @@ int Server::loadConfig() {
             config.serverListenToAddress = YAMLConfig["server_listen_to_address"].as<std::string>();
             config.serverListenToPort = YAMLConfig["server_listen_to_port"].as<uint16_t>();
 
-            config.otpPoolMaxSize = YAMLConfig["otp_pool_max_size"].as<uint32_t>();
-            config.otpTimeToLive = YAMLConfig["otp_time_to_live"].as<uint32_t>();
+            config.otpWebServerPoolMaxSize = YAMLConfig["otp_web_server_pool_max_size"].as<uint32_t>();
+            config.otpWebServerTimeToLive = YAMLConfig["otp_web_server_time_to_live"].as<uint32_t>();
+            config.otpRegistrationPoolMaxSize = YAMLConfig["otp_registration_pool_max_size"].as<uint32_t>();
+            config.otpRegistrationTimeToLive = YAMLConfig["otp_registration_time_to_live"].as<uint32_t>();
 
             config.snapshotInterval = YAMLConfig["snapshot_interval"].as<uint32_t>();
             config.dumpInterval = YAMLConfig["dump_interval"].as<uint32_t>();

@@ -23,7 +23,7 @@ int WebServer::init() {
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing OTP pool");
 
-    otpPool = std::make_unique<OTPPool>(parentServer->config.otpPoolMaxSize, parentServer->config.otpTimeToLive);
+    otpPool = std::make_unique<OTPPool>(parentServer->config.otpWebServerPoolMaxSize, parentServer->config.otpWebServerTimeToLive);
 
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "OTP pool initialized");
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "Initializing HTTPlib WebServer");
@@ -48,11 +48,15 @@ int WebServer::init() {
 #endif
 
             User user{};
-            std::string keyStr;
+            OTP otp = 0;
+            std::string strOtp;
 
             try {
                 nlohmann::json data = nlohmann::json::parse(request.body);
-                keyStr = data["key"].get<std::string>();
+                //! CHANGE WHEN APP 0.0.2 RELEASES
+                // strOtp = data["otp"].get<std::string>();
+                // user.name = data["username"].get<std::string>();
+                strOtp = data["key"].get<std::string>();
                 user.name = data["name"].get<std::string>();
             } catch (std::exception &e) {
                 RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}; body: {}", e.what(), request.body));
@@ -60,12 +64,12 @@ int WebServer::init() {
                 return;
             }
 
-            if (not hexStringToInt(keyStr, user.key, 8)) {
+            if (not hexStringToInt(strOtp, otp, 8)) {
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
                 return;
             }
 
-            if ((response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &user] { return parentServer->userDatabase->finishUserRegistration(user); }))) == RM_HTTP_CODE_OK) {
+            if ((response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, otp, &user] { return parentServer->userDatabase->finishUserRegistration(otp, user); }))) == RM_HTTP_CODE_OK) {
                 response.set_content(nlohmann::json({{"token", user.token.str()}}).dump(), "application/json");
             }
 
@@ -77,7 +81,6 @@ int WebServer::init() {
             beginElapsedTimer();
 #endif
 
-            response.set_content(nlohmann::json({{"timeToNextSnapshot", parentServer->config.snapshotInterval}}).dump(), "application/json");
             User user{};
 
             try {
