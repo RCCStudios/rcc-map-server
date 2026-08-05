@@ -24,15 +24,13 @@ private:
 
     std::unique_ptr<OTPPool> otpPool = nullptr;
 
-    std::unique_ptr<SQLite::Statement> validateUnregisteredUserByKeyQuery;
-    std::unique_ptr<SQLite::Statement> validateRegisteredUserByTokenQuery;
+    std::unique_ptr<SQLite::Statement> validateUserQuery;
 
-    std::unique_ptr<SQLite::Statement> finishUserRegistrationQuery1;
-    std::unique_ptr<SQLite::Statement> finishUserRegistrationQuery2;
+    std::unique_ptr<SQLite::Statement> finishUserRegistrationQuery;
 
     std::unique_ptr<SQLite::Statement> getUserByTokenQuery;
     std::unique_ptr<SQLite::Statement> getUserIDByTokenQuery;
-    std::unique_ptr<SQLite::Statement> retireUserByTokenQuery;
+    std::unique_ptr<SQLite::Statement> removeUserByTokenQuery;
 
     std::unique_ptr<SQLite::Statement> getAllUsersQuery;
 
@@ -52,7 +50,7 @@ private:
 #endif
 
 public:
-    int validateRegisteredUserByToken(const UUIDv4::UUID& token); // used in other methods
+    int validateUser(const UUIDv4::UUID& token); // used in other methods
 
     int beginUserRegistration(OTP &otp); // from terminal user new
     int finishUserRegistration(OTP otp, User &user); // from HTTP /api/register

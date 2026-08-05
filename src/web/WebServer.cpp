@@ -95,7 +95,6 @@ int WebServer::init() {
             }
 
             try {
-                user.state = User::RM_USER_STATE_ACTIVE;
                 const std::time_t now = time(nullptr);
 
                 nlohmann::json data = nlohmann::json::parse(request.body);
@@ -123,10 +122,6 @@ int WebServer::init() {
                             throw std::runtime_error(std::string("Unsupported type ") + data[prop.name].type_name());
                     }
                 }
-
-                // if (data["state"].get<int>() >= User::State::RM_USER_STATE_ENUM_COUNT) {
-                //     throw std::exception();
-                // }
             } catch (std::exception &e) {
                 RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}; body: {}", e.what(), request.body));
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
@@ -157,7 +152,7 @@ int WebServer::init() {
                 return;
             }
 
-            if ((response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &token] { return parentServer->userDatabase->validateRegisteredUserByToken(token); }))) != RM_HTTP_CODE_OK) {
+            if ((response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &token] { return parentServer->userDatabase->validateUser(token); }))) != RM_HTTP_CODE_OK) {
                 return;
             }
 
@@ -169,12 +164,8 @@ int WebServer::init() {
             nlohmann::json data = nlohmann::json::array();
 
             for (const User &user: users) {
-                if (user.state != User::State::RM_USER_STATE_ACTIVE) {
-                    continue;
-                }
-
                 nlohmann::json userData({
-                    {"id", user.id},
+                    {"id", user.id.str()},
                     {"name", user.name},
                     {"avatarPath", user.avatarPath}
                 });
@@ -224,7 +215,7 @@ int WebServer::init() {
                 return;
             }
 
-            if ((response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &token] { return parentServer->userDatabase->validateRegisteredUserByToken(token); }))) != RM_HTTP_CODE_OK) {
+            if ((response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &token] { return parentServer->userDatabase->validateUser(token); }))) != RM_HTTP_CODE_OK) {
                 return;
             }
 
@@ -292,7 +283,7 @@ int WebServer::init() {
                     return;
                 }
 
-                if (int responseCode = 0; (responseCode = parentServer->executeJob([this, &token] { return parentServer->userDatabase->validateRegisteredUserByToken(token); })) != RM_HTTP_CODE_OK) {
+                if (int responseCode = 0; (responseCode = parentServer->executeJob([this, &token] { return parentServer->userDatabase->validateUser(token); })) != RM_HTTP_CODE_OK) {
                     webSocket.close(httplib::ws::CloseStatus::PolicyViolation, fmt::format("Authorization failed: {}", responseCode));
                     return;
                 }
@@ -308,7 +299,6 @@ int WebServer::init() {
                 }
 
                 openWebSockets.remove(&webSocket);
-                webSocket.close(httplib::ws::CloseStatus::Normal, "Shutting down gracefully");
                 RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("WebSocket connection closed (pointer {})", static_cast<void *>(&webSocket)));
             },
             [](const std::vector<std::string> &protocols) { return protocols[0]; });

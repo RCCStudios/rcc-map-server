@@ -404,7 +404,7 @@ int Server::sendTelemetryUpdate(User &user) {
         return responseCode;
     }
 
-    nlohmann::json data({{"id", user.id}});
+    nlohmann::json data({{"id", user.id.str()}});
     for (const TelemetryProperty &prop: user.telemetry.data) {
         switch (prop.type) {
             case nlohmann::json::value_t::number_integer:
