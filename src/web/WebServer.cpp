@@ -53,11 +53,16 @@ int WebServer::init() {
 
             try {
                 nlohmann::json data = nlohmann::json::parse(request.body);
-                //! CHANGE WHEN APP 0.0.2 RELEASES
-                // strOtp = data["otp"].get<std::string>();
-                // user.name = data["username"].get<std::string>();
-                strOtp = data["key"].get<std::string>();
-                user.name = data["name"].get<std::string>();
+                try {
+                    // app v0.0.2 compat
+                    strOtp = data["otp"].get<std::string>();
+                    user.name = data["username"].get<std::string>();
+                } catch (std::exception &e) {
+                    // ! REMOVE WHEN APP v0.0.3 RELEASES
+                    // app v0.0.1 compat
+                    strOtp = data["key"].get<std::string>();
+                    user.name = data["name"].get<std::string>();
+                }
             } catch (std::exception &e) {
                 RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}; body: {}", e.what(), request.body));
                 response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
