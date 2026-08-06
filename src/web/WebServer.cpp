@@ -81,6 +81,84 @@ int WebServer::init() {
             RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
         });
 
+        webServer->Post("/api/user", [this](const httplib::Request &request, httplib::Response &response) {
+#ifdef RM_DEBUG
+            beginElapsedTimer();
+#endif
+
+            User user{};
+
+            if ((response.status = static_cast<httplib::StatusCode>(parseAuthHeader(request.get_header_value("Authorization"), user.token))) != RM_HTTP_CODE_OK) {
+                return;
+            }
+
+            bool hasAnythingToUpdate = false;
+
+            try {
+                nlohmann::json data = nlohmann::json::parse(request.body);
+                if (not data["username"].is_null()) {
+                    user.username = data["username"].get<std::string>();
+                    hasAnythingToUpdate = true;
+                }
+                if (not data["telegram"].is_null()) {
+                    user.telegram = data["telegram"].get<std::string>();
+                    hasAnythingToUpdate = true;
+                }
+            } catch (std::exception &e) {
+                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}; body: {}", e.what(), request.body));
+                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_BAD_REQUEST);
+                return;
+            }
+
+            if (not hasAnythingToUpdate) {
+                return;
+            }
+
+            response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &user] { return parentServer->userDatabase->updateUserInfo(user); }));
+            RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
+        });
+
+        webServer->Get("/api/user", [this](const httplib::Request &request, httplib::Response &response) {
+#ifdef RM_DEBUG
+            beginElapsedTimer();
+#endif
+
+            User user;
+            if ((response.status = static_cast<httplib::StatusCode>(parseAuthHeader(request.get_header_value("Authorization"), user.token))) != RM_HTTP_CODE_OK) {
+                return;
+            }
+
+            if ((response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &user] { return parentServer->userDatabase->getUserByToken(user); }))) != RM_HTTP_CODE_OK) {
+                return;
+            }
+
+            nlohmann::json data;
+            if (not user.username.empty()) {
+                data["username"] = user.username;
+            }
+            else {
+                data["username"] = nullptr;
+            }
+
+            if (not user.telegram.empty()) {
+                data["telegram"] = user.telegram;
+            }
+            else {
+                data["telegram"] = nullptr;
+            }
+
+            if constexpr (true /* FIXME */) {
+                data["avatarPath"] = "/api/avatar/" + user.id.str() + ".jpg";
+            }
+            else {
+                data["avatarPath"] = nullptr;
+            }
+
+            response.set_content(data.dump(), "application/json");
+
+            RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), user.token.str()));
+        });
+
         webServer->Post("/api/telemetry", [this](const httplib::Request &request, httplib::Response &response) {
 #ifdef RM_DEBUG
             beginElapsedTimer();
@@ -125,6 +203,10 @@ int WebServer::init() {
                 return;
             }
 
+            if (user.telemetry.data.empty()) {
+                return;
+            }
+
             response.status = static_cast<httplib::StatusCode>(parentServer->executeJob([this, &user] { return parentServer->userDatabase->updateTelemetry(user); }));
             parentServer->executeJob([this, &user] { return parentServer->sendTelemetryUpdate(user); });
 
@@ -156,7 +238,8 @@ int WebServer::init() {
                 nlohmann::json userData({
                     {"id", user.id.str()},
                     {"name", user.username},
-                    {"avatarPath", user.avatarPath}
+                    {"telegram", user.telegram},
+                    {"avatarPath", "/api/avatar/" + user.id.str() + ".jpg"}
                 });
 
                 for (const TelemetryProperty &prop: user.telemetry.data) {
@@ -242,14 +325,12 @@ int WebServer::init() {
             RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request satisfied in {}ns; token = {}", endElapsedTimer(), token.str()));
         });
 
-
-#ifdef RM_SSL_SUPPORT
-        std::string webSocketEndpoint = "/api/wss";
-#else
-        std::string webSocketEndpoint = "/api/ws";
-#endif
         webServer->WebSocket(
-            webSocketEndpoint,
+#ifdef RM_SSL_SUPPORT
+            "/api/wss",
+#else
+            "/api/ws",
+#endif
             [this](const httplib::Request &request, httplib::ws::WebSocket &webSocket) {
                 UUIDv4::UUID token;
                 if (int responseCode = 0; (responseCode = parseAuthHeader(request.get_header_value("Sec-WebSocket-Protocol"), token)) != RM_HTTP_CODE_OK) {

@@ -28,11 +28,11 @@ private:
 
     std::unique_ptr<SQLite::Statement> finishUserRegistrationQuery;
 
+    std::unique_ptr<SQLite::Statement> getAllUsersQuery;
     std::unique_ptr<SQLite::Statement> getUserByTokenQuery;
     std::unique_ptr<SQLite::Statement> getUserIDByTokenQuery;
-    std::unique_ptr<SQLite::Statement> removeUserByTokenQuery;
 
-    std::unique_ptr<SQLite::Statement> getAllUsersQuery;
+    std::unique_ptr<SQLite::Statement> removeUserByTokenQuery;
 
     Server* parentServer = nullptr;
     int code = 0;
@@ -52,14 +52,15 @@ private:
 public:
     int validateUser(const UUIDv4::UUID& token); // used in other methods
 
-    int beginUserRegistration(OTP &otp); // from terminal user new
-    int finishUserRegistration(OTP otp, User &user); // from HTTP /api/register
+    int beginUserRegistration(OTP &otp); // from terminal "user new"
+    int finishUserRegistration(OTP otp, User &user); // from HTTP /api/register :: POST
 
-    int getUserByToken(User &user); // reserve for later
+    int getAllUsers(std::vector<User> &users); // from HTTP /api/ws & terminal "user get"
+    int getUserByToken(User &user); // from terminal "user get"
     int getUserIDByToken(User &user); // from job sendTelemetryUpdate
-    int retireUserByToken(const UUIDv4::UUID& token); // from terminal user retire
 
-    int getAllUsers(std::vector<User> &users); // from HTTP /api/ws
+    int removeUserByToken(const UUIDv4::UUID& token); // from terminal terminal "user get"
 
+    int updateUserInfo(const User &user); // from HTTP /api/
     int updateTelemetry(const User &user); // from HTTP /api/sendTelemetry
 };

@@ -280,7 +280,7 @@ void Server::processInput() {
                 return;
             }
             UUIDv4::UUID token = UUIDv4::UUID::fromStrFactory(inputArgs[2]);
-            executeJob([this, token] { return userDatabase->retireUserByToken(token); });
+            executeJob([this, token] { return userDatabase->removeUserByToken(token); });
             return;
         }
 
@@ -310,7 +310,7 @@ void Server::processInput() {
                 return;
             }
             std::vector<std::vector<std::string> > tableContents;
-            tableContents.push_back({"token", "id", "username", "avatarPath"});
+            tableContents.push_back({"token", "id", "username", "telegram"});
             for (const TelemetryProperty &prop: Telemetry::schema) {
                 tableContents[0].push_back(prop.name);
                 tableContents[0].push_back(prop.name + "TS");
@@ -321,7 +321,7 @@ void Server::processInput() {
                 tableContents[userIndex + 1].push_back(users[userIndex].token.str());
                 tableContents[userIndex + 1].push_back(users[userIndex].id.str());
                 tableContents[userIndex + 1].push_back(users[userIndex].username);
-                tableContents[userIndex + 1].push_back(users[userIndex].avatarPath);
+                tableContents[userIndex + 1].push_back(users[userIndex].telegram);
                 for (const TelemetryProperty &prop: users[userIndex].telemetry.data) {
                     switch (prop.type) {
                         case nlohmann::json::value_t::number_integer:

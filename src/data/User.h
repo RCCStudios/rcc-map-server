@@ -10,7 +10,6 @@ struct User {
 
     std::string username;
     std::string telegram;
-    std::string avatarPath;
 
     Telemetry telemetry{};
 };

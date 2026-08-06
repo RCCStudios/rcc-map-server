@@ -32,7 +32,7 @@ int UserDatabase::init() {
             db = std::make_unique<SQLite::Database>(parentServer->config.userDatabasePath, SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
 
             std::stringstream stream;
-            stream << R"(CREATE TABLE "users" ("tokenX" INTEGER, "tokenY" INTEGER, "idX" INTEGER, "idY" INTEGER, "username" TEXT, "avatarPath" TEXT, )";
+            stream << R"(CREATE TABLE "users" ("tokenX" INTEGER, "tokenY" INTEGER, "idX" INTEGER, "idY" INTEGER, "username" TEXT, "telegram" TEXT, )";
             for (const TelemetryProperty &prop: Telemetry::schema) {
                 stream << "\"" << prop.name << "\" INTEGER, \"" << prop.name << "TS\" INTEGER, ";
             }
@@ -66,11 +66,11 @@ int UserDatabase::init() {
 
         finishUserRegistrationQuery = std::make_unique<SQLite::Statement>(*db, "INSERT INTO users (tokenX, tokenY, idX, idY, username) VALUES (?, ?, ?, ?, ?)");
 
-        getUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT idX, idY, username, avatarPath, " + telemetrySchemaString + " FROM users WHERE tokenX = ? and tokenY = ?");
+        getAllUsersQuery = std::make_unique<SQLite::Statement>(*db, "SELECT tokenX, tokenY, idX, idY, username, telegram, " + telemetrySchemaString + " FROM users");
+        getUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT idX, idY, username, telegram, " + telemetrySchemaString + " FROM users WHERE tokenX = ? and tokenY = ?");
         getUserIDByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT idX, idY FROM users WHERE tokenX = ? and tokenY = ?");
-        removeUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "DELETE FROM users WHERE tokenX = ? and tokenY = ?");
 
-        getAllUsersQuery = std::make_unique<SQLite::Statement>(*db, "SELECT tokenX, tokenY, idX, idY, username, avatarPath, " + telemetrySchemaString + " FROM users");
+        removeUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "DELETE FROM users WHERE tokenX = ? and tokenY = ?");
     } catch (std::exception &e) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to precompile queries: {}", e.what()));
         return RM_ERROR_CODE_LIB_SQLITE;
@@ -198,6 +198,43 @@ int UserDatabase::finishUserRegistration(OTP otp, User &user) {
     return responseCode;
 }
 
+int UserDatabase::getAllUsers(std::vector<User> &users) {
+#ifdef RM_DEBUG
+    beginElapsedTimer();
+#endif
+
+    int responseCode = RM_HTTP_CODE_OK;
+
+    try {
+        while (getAllUsersQuery->executeStep()) {
+            User user{};
+            user.token = UUIDv4::UUID(getAllUsersQuery->getColumn(0).getInt64(), getAllUsersQuery->getColumn(1).getInt64());
+            user.id = UUIDv4::UUID(getAllUsersQuery->getColumn(2).getInt64(), getAllUsersQuery->getColumn(3).getInt64());
+            user.username = getAllUsersQuery->getColumn(4).getString();
+            user.telegram = getAllUsersQuery->isColumnNull(5) ? "" : getAllUsersQuery->getColumn(5).getString();
+
+            for (int propIndex = 0; propIndex < Telemetry::schema.size(); propIndex++) {
+                if (getAllUsersQuery->getColumn(propIndex * 2 + 6).isNull() or getAllUsersQuery->getColumn(propIndex * 2 + 7).isNull()) {
+                    user.telemetry.data.push_back({0, 0, Telemetry::schema[propIndex].name, nlohmann::json::value_t::null});
+                    continue;
+                }
+                user.telemetry.data.push_back({getAllUsersQuery->getColumn(propIndex * 2 + 6).getInt64(), getAllUsersQuery->getColumn(propIndex * 2 + 7).getInt64(), Telemetry::schema[propIndex].name, Telemetry::schema[propIndex].type});
+            }
+
+            users.push_back(user);
+        }
+    } catch (const std::exception &e) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to get users: caught SQLIte exception: {}", e.what()));
+        responseCode = RM_HTTP_CODE_INTERNAL_ERROR;
+    }
+
+    getAllUsersQuery->tryReset();
+
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns", endElapsedTimer()));
+
+    return responseCode;
+}
+
 int UserDatabase::getUserByToken(User &user) {
 #ifdef RM_DEBUG
     beginElapsedTimer();
@@ -220,7 +257,7 @@ int UserDatabase::getUserByToken(User &user) {
 
         user.id = UUIDv4::UUID(getUserByTokenQuery->getColumn(0).getInt64(), getUserByTokenQuery->getColumn(1).getInt64());
         user.username = getUserByTokenQuery->getColumn(2).getString();
-        user.avatarPath = getUserByTokenQuery->isColumnNull(3) ? "" : getUserByTokenQuery->getColumn(3).getString();
+        user.telegram = getUserByTokenQuery->isColumnNull(3) ? "" : getUserByTokenQuery->getColumn(3).getString();
 
         for (int propIndex = 0; propIndex < Telemetry::schema.size(); propIndex++) {
             if (getUserByTokenQuery->getColumn(propIndex * 2 + 4).isNull() or getUserByTokenQuery->getColumn(propIndex * 2 + 5).isNull()) {
@@ -274,7 +311,7 @@ int UserDatabase::getUserIDByToken(User &user) {
     return responseCode;
 }
 
-int UserDatabase::retireUserByToken(const UUIDv4::UUID &token) {
+int UserDatabase::removeUserByToken(const UUIDv4::UUID &token) {
 #ifdef RM_DEBUG
     beginElapsedTimer();
 #endif
@@ -305,39 +342,47 @@ int UserDatabase::retireUserByToken(const UUIDv4::UUID &token) {
     return responseCode;
 }
 
-int UserDatabase::getAllUsers(std::vector<User> &users) {
+int UserDatabase::updateUserInfo(const User &user) {
 #ifdef RM_DEBUG
     beginElapsedTimer();
 #endif
-
     int responseCode = RM_HTTP_CODE_OK;
 
+    if ((responseCode = validateUser(user.token)) != RM_HTTP_CODE_OK) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("User info update failed with invalid token {}", user.token.str()));
+        return responseCode;
+    }
+
+    char bytes[16];
+    user.token.bytes(bytes);
+
+    int64_t tokenX = 0;
+    int64_t tokenY = 0;
+    memcpy(&tokenX, bytes + 8, 8);
+    memcpy(&tokenY, bytes, 8);
+
+    std::stringstream stream;
+    stream << "UPDATE users SET ";
+    if (!user.username.empty()) {
+        stream << "username = \"" << user.username << "\", ";
+    }
+    if (!user.telegram.empty()) {
+        stream << "telegram = \"" << user.telegram << "\", ";
+    }
+    stream.seekp(-2, std::stringstream::cur); // goofy ahh last comma workaround: electric boogaloo
+    stream << " WHERE tokenX = " << tokenX << " and tokenY = " << tokenY;
+    std::string query = stream.str();
+
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Update user info query: {}", query));
+
     try {
-        while (getAllUsersQuery->executeStep()) {
-            User user{};
-            user.token = UUIDv4::UUID(getAllUsersQuery->getColumn(0).getInt64(), getAllUsersQuery->getColumn(1).getInt64());
-            user.id = UUIDv4::UUID(getAllUsersQuery->getColumn(2).getInt64(), getAllUsersQuery->getColumn(3).getInt64());
-            user.username = getAllUsersQuery->getColumn(4).getString();
-            user.avatarPath = getAllUsersQuery->isColumnNull(5) ? "" : getAllUsersQuery->getColumn(5).getString();
-
-            for (int propIndex = 0; propIndex < Telemetry::schema.size(); propIndex++) {
-                if (getAllUsersQuery->getColumn(propIndex * 2 + 6).isNull() or getAllUsersQuery->getColumn(propIndex * 2 + 7).isNull()) {
-                    user.telemetry.data.push_back({0, 0, Telemetry::schema[propIndex].name, nlohmann::json::value_t::null});
-                    continue;
-                }
-                user.telemetry.data.push_back({getAllUsersQuery->getColumn(propIndex * 2 + 6).getInt64(), getAllUsersQuery->getColumn(propIndex * 2 + 7).getInt64(), Telemetry::schema[propIndex].name, Telemetry::schema[propIndex].type});
-            }
-
-            users.push_back(user);
-        }
+        db->exec(query);
     } catch (const std::exception &e) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to get users: caught SQLIte exception: {}", e.what()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to update user info: caught SQLIte exception: {}", e.what()));
         responseCode = RM_HTTP_CODE_INTERNAL_ERROR;
     }
 
-    getAllUsersQuery->tryReset();
-
-    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns", endElapsedTimer()));
+    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Call done in {}ns, token = {}", endElapsedTimer(), user.token.str()));
 
     return responseCode;
 }
@@ -346,12 +391,6 @@ int UserDatabase::updateTelemetry(const User &user) {
 #ifdef RM_DEBUG
     beginElapsedTimer();
 #endif
-
-
-    if (user.telemetry.data.empty()) {
-        return RM_HTTP_CODE_BAD_REQUEST;
-    }
-
     int responseCode = RM_HTTP_CODE_OK;
 
     if ((responseCode = validateUser(user.token)) != RM_HTTP_CODE_OK) {
@@ -372,9 +411,7 @@ int UserDatabase::updateTelemetry(const User &user) {
     for (const TelemetryProperty &prop: user.telemetry.data) {
         stream << prop.name << " = " << prop.value << ", " << prop.name << "TS = " << prop.timestamp << ", ";
     }
-    if (not user.telemetry.data.empty()) {
-        stream.seekp(-2, std::stringstream::cur); // goofy ahh last comma workaround: electric boogaloo
-    }
+    stream.seekp(-2, std::stringstream::cur); // goofy ahh last comma workaround: electric boogaloo reborn
     stream << " WHERE tokenX = " << tokenX << " and tokenY = " << tokenY;
     std::string query = stream.str();
 
