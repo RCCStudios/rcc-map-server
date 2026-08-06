@@ -29,6 +29,8 @@ private:
     Server *parentServer = nullptr;
     int code = 0;
 
+    static int parseAuthHeader(const std::string& header, UUIDv4::UUID &token);
+
 #ifdef RM_DEBUG
     std::chrono::steady_clock::time_point begin;
 

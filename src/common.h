@@ -73,6 +73,48 @@ public:                                                            \
 
 #define RM_ERROR_CODE_UNKNOWN 1000
 
+inline void printTable(const std::vector<std::vector<std::string> > &tableContents) {
+    const uint32_t w = tableContents[0].size();
+    const uint32_t h = tableContents.size();
+
+    std::vector<uint32_t> maxContentLengths(w);
+
+    for (uint32_t column = 0; column < w; column++) {
+        uint32_t max = tableContents[0][column].size();
+        for (uint32_t row = 1; row < h; row++) {
+            if (tableContents[row][column].size() > max) {
+                max = tableContents[row][column].size();
+            }
+        }
+        maxContentLengths[column] = max;
+    }
+
+    std::string border;
+    std::vector<std::string> rows(h);
+
+    for (uint32_t column = 0; column < w; column++) {
+        border += fmt::format(fmt::runtime("+-{:-<" + std::to_string(maxContentLengths[column]) + "}-"), "");
+        rows[0] += fmt::format(fmt::runtime("| {:^" + std::to_string(maxContentLengths[column]) + "} "), tableContents[0][column]);
+        for (uint32_t row = 1; row < h; row++) {
+            rows[row] += fmt::format(fmt::runtime("| {:>" + std::to_string(maxContentLengths[column]) + "} "), tableContents[row][column]);
+        }
+    }
+    border += '+';
+    for (uint32_t row = 0; row < h; row++) {
+        rows[row] += '|';
+    }
+
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, border);
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, rows[0]);
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, border);
+
+    for (uint32_t row = 1; row < h; row++) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, rows[row]);
+    }
+
+    RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, border);
+}
+
 inline void replaceInString(std::string &string, const std::string &from, const std::string &to) {
     size_t startPos = 0;
 
@@ -123,6 +165,19 @@ inline bool checkStringForValidHexColor(std::string string) {
         return false;
     }
     return checkStringForValidHex(string.substr(1), 6);
+}
+
+inline bool checkStringForValidUUID(std::string string) {
+    if (string.empty() or string.size() != 36 or (string[8] != '-' or string[13] != '-' or string[18] != '-' or string[23] != '-')) {
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse string (\"{}\") as a UUID. Note: expected format is \"12345678-1234-1234-1234-123456789abc\"", string));
+        return false;
+    }
+
+    return checkStringForValidHex(string.substr(0, 8)) and
+           checkStringForValidHex(string.substr(9, 4)) and
+           checkStringForValidHex(string.substr(14, 4)) and
+           checkStringForValidHex(string.substr(19, 4)) and
+           checkStringForValidHex(string.substr(24, 12));
 }
 
 template<class T>

@@ -270,23 +270,83 @@ void Server::processInput() {
             return;
         }
 
-        if (inputArgs[1] == "retire") {
+        if (inputArgs[1] == "remove") {
             if (inputArgs.size() == 2) {
                 RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": no argument found", inputString));
                 return;
             }
-            UUIDv4::UUID token;
-            try {
-                token.fromStr(inputArgs[2].c_str());
-            } catch (std::exception &e) {
+            if (not checkStringForValidUUID(inputArgs[2])) {
                 RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": string to token conversion failed", inputString));
                 return;
             }
+            UUIDv4::UUID token = UUIDv4::UUID::fromStrFactory(inputArgs[2]);
             executeJob([this, token] { return userDatabase->retireUserByToken(token); });
             return;
         }
 
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": unknown subcommand", inputString));
+        if (inputArgs[1] == "get") {
+            std::vector<User> users;
+            if (inputArgs.size() == 3) {
+                for (std::string &strToken: splitString(inputArgs[2], ',')) {
+                    if (not checkStringForValidUUID(strToken)) {
+                        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": string to token conversion failed", inputString));
+                        return;
+                    }
+                    User user{.token = UUIDv4::UUID::fromStrFactory(strToken)};
+                    if (executeJob([this, &user] { return userDatabase->getUserByToken(user); }) != RM_HTTP_CODE_OK) {
+                        RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, "Command execution failed");
+                        return;
+                    }
+                    users.push_back(user);
+                }
+            } else {
+                if (executeJob([this, &users] { return userDatabase->getAllUsers(users); }) != RM_HTTP_CODE_OK) {
+                    RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, "Command execution failed");
+                    return;
+                }
+            }
+            if (users.empty()) {
+                RM_LOG(RM_LOG_LEVEL_PREFIX_WARN, RM_LOG_AUTO_PREFIX, "No users found");
+                return;
+            }
+            std::vector<std::vector<std::string> > tableContents;
+            tableContents.push_back({"token", "id", "username", "avatarPath"});
+            for (const TelemetryProperty &prop: Telemetry::schema) {
+                tableContents[0].push_back(prop.name);
+                tableContents[0].push_back(prop.name + "TS");
+            }
+            for (uint32_t userIndex = 0; userIndex < users.size(); userIndex++) {
+                tableContents.emplace_back();
+                tableContents[userIndex + 1].reserve(tableContents[0].size());
+                tableContents[userIndex + 1].push_back(users[userIndex].token.str());
+                tableContents[userIndex + 1].push_back(users[userIndex].id.str());
+                tableContents[userIndex + 1].push_back(users[userIndex].username);
+                tableContents[userIndex + 1].push_back(users[userIndex].avatarPath);
+                for (const TelemetryProperty &prop: users[userIndex].telemetry.data) {
+                    switch (prop.type) {
+                        case nlohmann::json::value_t::number_integer:
+                            tableContents[userIndex + 1].push_back(std::to_string(std::bit_cast<int64_t>(prop.value)));
+                            break;
+                        case nlohmann::json::value_t::number_unsigned:
+                            tableContents[userIndex + 1].push_back(std::to_string(std::bit_cast<uint64_t>(prop.value)));
+                            break;
+                        case nlohmann::json::value_t::number_float:
+                            tableContents[userIndex + 1].push_back(std::to_string(std::bit_cast<double>(prop.value)));
+                            break;
+                        case nlohmann::json::value_t::boolean:
+                            tableContents[userIndex + 1].push_back(std::to_string(static_cast<bool>(prop.value)));
+                            break;
+                        default:
+                            tableContents[userIndex + 1].emplace_back("-");
+                    }
+                    tableContents[userIndex + 1].push_back(unixtimeToIso8601(prop.timestamp));
+                }
+            }
+            printTable(tableContents);
+            return;
+        }
+
+        RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse command \"{}\": unknown subcommand", inputString));
         return;
     }
 

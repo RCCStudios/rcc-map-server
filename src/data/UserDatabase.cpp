@@ -32,7 +32,7 @@ int UserDatabase::init() {
             db = std::make_unique<SQLite::Database>(parentServer->config.userDatabasePath, SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
 
             std::stringstream stream;
-            stream << R"(CREATE TABLE "users" ("tokenX" INTEGER, "tokenY" INTEGER, "idX" INTEGER, "idY" INTEGER, "name" TEXT, "avatarPath" TEXT, )";
+            stream << R"(CREATE TABLE "users" ("tokenX" INTEGER, "tokenY" INTEGER, "idX" INTEGER, "idY" INTEGER, "username" TEXT, "avatarPath" TEXT, )";
             for (const TelemetryProperty &prop: Telemetry::schema) {
                 stream << "\"" << prop.name << "\" INTEGER, \"" << prop.name << "TS\" INTEGER, ";
             }
@@ -64,13 +64,13 @@ int UserDatabase::init() {
 
         validateUserQuery = std::make_unique<SQLite::Statement>(*db, "SELECT 1 FROM users WHERE tokenX = ? and tokenY = ?");
 
-        finishUserRegistrationQuery = std::make_unique<SQLite::Statement>(*db, "INSERT INTO users (tokenX, tokenY, idX, idY, name) VALUES (?, ?, ?, ?, ?)");
+        finishUserRegistrationQuery = std::make_unique<SQLite::Statement>(*db, "INSERT INTO users (tokenX, tokenY, idX, idY, username) VALUES (?, ?, ?, ?, ?)");
 
-        getUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT idX, idY name, avatarPath, " + telemetrySchemaString + " FROM users WHERE tokenX = ? and tokenY = ?");
+        getUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT idX, idY, username, avatarPath, " + telemetrySchemaString + " FROM users WHERE tokenX = ? and tokenY = ?");
         getUserIDByTokenQuery = std::make_unique<SQLite::Statement>(*db, "SELECT idX, idY FROM users WHERE tokenX = ? and tokenY = ?");
         removeUserByTokenQuery = std::make_unique<SQLite::Statement>(*db, "DELETE FROM users WHERE tokenX = ? and tokenY = ?");
 
-        getAllUsersQuery = std::make_unique<SQLite::Statement>(*db, "SELECT tokenX, tokenY, idX, idY, name, avatarPath, " + telemetrySchemaString + " FROM users");
+        getAllUsersQuery = std::make_unique<SQLite::Statement>(*db, "SELECT tokenX, tokenY, idX, idY, username, avatarPath, " + telemetrySchemaString + " FROM users");
     } catch (std::exception &e) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to precompile queries: {}", e.what()));
         return RM_ERROR_CODE_LIB_SQLITE;
@@ -180,7 +180,7 @@ int UserDatabase::finishUserRegistration(OTP otp, User &user) {
         finishUserRegistrationQuery->bind(2, tokenY);
         finishUserRegistrationQuery->bind(3, idX);
         finishUserRegistrationQuery->bind(4, idY);
-        finishUserRegistrationQuery->bind(5, user.name);
+        finishUserRegistrationQuery->bind(5, user.username);
         finishUserRegistrationQuery->exec();
     } catch (std::exception &e) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to insert user with OTP {}: caught SQLIte exception: {}", strOtp, e.what()));
@@ -218,8 +218,8 @@ int UserDatabase::getUserByToken(User &user) {
         getUserByTokenQuery->bind(2, tokenY);
         getUserByTokenQuery->executeStep();
 
-        user.id = UUIDv4::UUID(getUserByTokenQuery->getColumn(0).getInt(), getUserByTokenQuery->getColumn(1).getInt());
-        user.name = getUserByTokenQuery->getColumn(2).getString();
+        user.id = UUIDv4::UUID(getUserByTokenQuery->getColumn(0).getInt64(), getUserByTokenQuery->getColumn(1).getInt64());
+        user.username = getUserByTokenQuery->getColumn(2).getString();
         user.avatarPath = getUserByTokenQuery->isColumnNull(3) ? "" : getUserByTokenQuery->getColumn(3).getString();
 
         for (int propIndex = 0; propIndex < Telemetry::schema.size(); propIndex++) {
@@ -261,7 +261,7 @@ int UserDatabase::getUserIDByToken(User &user) {
         getUserIDByTokenQuery->bind(2, tokenY);
         getUserIDByTokenQuery->executeStep();
 
-        user.id = UUIDv4::UUID(getUserIDByTokenQuery->getColumn(0).getInt(), getUserIDByTokenQuery->getColumn(1).getInt());
+        user.id = UUIDv4::UUID(getUserIDByTokenQuery->getColumn(0).getInt64(), getUserIDByTokenQuery->getColumn(1).getInt64());
     } catch (const std::exception &e) {
         RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to get user with token {}: caught SQLIte exception: {}", user.token.str(), e.what()));
         responseCode = RM_HTTP_CODE_INTERNAL_ERROR;
@@ -315,9 +315,9 @@ int UserDatabase::getAllUsers(std::vector<User> &users) {
     try {
         while (getAllUsersQuery->executeStep()) {
             User user{};
-            user.token = UUIDv4::UUID(getAllUsersQuery->getColumn(0).getInt(), getAllUsersQuery->getColumn(1).getInt());
-            user.id = UUIDv4::UUID(getAllUsersQuery->getColumn(2).getInt(), getAllUsersQuery->getColumn(3).getInt());
-            user.name = getAllUsersQuery->getColumn(4).getString();
+            user.token = UUIDv4::UUID(getAllUsersQuery->getColumn(0).getInt64(), getAllUsersQuery->getColumn(1).getInt64());
+            user.id = UUIDv4::UUID(getAllUsersQuery->getColumn(2).getInt64(), getAllUsersQuery->getColumn(3).getInt64());
+            user.username = getAllUsersQuery->getColumn(4).getString();
             user.avatarPath = getAllUsersQuery->isColumnNull(5) ? "" : getAllUsersQuery->getColumn(5).getString();
 
             for (int propIndex = 0; propIndex < Telemetry::schema.size(); propIndex++) {

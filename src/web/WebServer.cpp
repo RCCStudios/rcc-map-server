@@ -56,12 +56,12 @@ int WebServer::init() {
                 try {
                     // app v0.0.2 compat
                     strOtp = data["otp"].get<std::string>();
-                    user.name = data["username"].get<std::string>();
+                    user.username = data["username"].get<std::string>();
                 } catch (std::exception &e) {
                     // ! REMOVE WHEN APP v0.0.3 RELEASES
                     // app v0.0.1 compat
                     strOtp = data["key"].get<std::string>();
-                    user.name = data["name"].get<std::string>();
+                    user.username = data["name"].get<std::string>();
                 }
             } catch (std::exception &e) {
                 RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request parsing failed: {}; body: {}", e.what(), request.body));
@@ -86,16 +86,8 @@ int WebServer::init() {
             beginElapsedTimer();
 #endif
 
-            User user{};
-
-            try {
-                if (request.get_header_value("Authorization").substr(0, 7) != "Bearer ") {
-                    throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Authorization").substr(0, 7) + std::string("\""));
-                }
-                user.token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Authorization").substr(7));
-            } catch (std::exception &e) {
-                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: {}", e.what()));
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_UNAUTHORIZED);
+            User user;
+            if ((response.status = static_cast<httplib::StatusCode>(parseAuthHeader(request.get_header_value("Authorization"), user.token))) != RM_HTTP_CODE_OK) {
                 return;
             }
 
@@ -145,15 +137,7 @@ int WebServer::init() {
 #endif
 
             UUIDv4::UUID token;
-
-            try {
-                if (request.get_header_value("Authorization").substr(0, 7) != "Bearer ") {
-                    throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Authorization").substr(0, 7) + std::string("\""));
-                }
-                token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Authorization").substr(7));
-            } catch (std::exception &e) {
-                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: {}", e.what()));
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_UNAUTHORIZED);
+            if ((response.status = static_cast<httplib::StatusCode>(parseAuthHeader(request.get_header_value("Authorization"), token))) != RM_HTTP_CODE_OK) {
                 return;
             }
 
@@ -171,7 +155,7 @@ int WebServer::init() {
             for (const User &user: users) {
                 nlohmann::json userData({
                     {"id", user.id.str()},
-                    {"name", user.name},
+                    {"name", user.username},
                     {"avatarPath", user.avatarPath}
                 });
 
@@ -208,15 +192,7 @@ int WebServer::init() {
 #endif
 
             UUIDv4::UUID token;
-
-            try {
-                if (request.get_header_value("Authorization").substr(0, 7) != "Bearer ") {
-                    throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Authorization").substr(0, 7) + std::string("\""));
-                }
-                token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Authorization").substr(7));
-            } catch (std::exception &e) {
-                RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: {}", e.what()));
-                response.status = static_cast<httplib::StatusCode>(RM_HTTP_CODE_UNAUTHORIZED);
+            if ((response.status = static_cast<httplib::StatusCode>(parseAuthHeader(request.get_header_value("Authorization"), token))) != RM_HTTP_CODE_OK) {
                 return;
             }
 
@@ -276,15 +252,8 @@ int WebServer::init() {
             webSocketEndpoint,
             [this](const httplib::Request &request, httplib::ws::WebSocket &webSocket) {
                 UUIDv4::UUID token;
-
-                try {
-                    if (request.get_header_value("Sec-WebSocket-Protocol").substr(0, 7) != "bearer.") {
-                        throw std::runtime_error(std::string("Invalid authorization header \"") + request.get_header_value("Sec-WebSocket-Protocol").substr(0, 7) + std::string("\""));
-                    }
-                    token = UUIDv4::UUID::fromStrFactory(request.get_header_value("Sec-WebSocket-Protocol").substr(7));
-                } catch (std::exception &e) {
-                    RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Websocket handshake auth failed: {}", e.what()));
-                    webSocket.close(httplib::ws::CloseStatus::PolicyViolation, fmt::format("Authorization failed: {}", RM_HTTP_CODE_UNAUTHORIZED));
+                if (int responseCode = 0; (responseCode = parseAuthHeader(request.get_header_value("Sec-WebSocket-Protocol"), token)) != RM_HTTP_CODE_OK) {
+                    webSocket.close(httplib::ws::CloseStatus::PolicyViolation, fmt::format("Authorization failed: {}", responseCode));
                     return;
                 }
 
@@ -340,6 +309,19 @@ int WebServer::destroy() {
     RM_LOG(RM_LOG_LEVEL_PREFIX_INFO, RM_LOG_AUTO_PREFIX, "WebServer object destroyed");
 
     return 0;
+}
+
+int WebServer::parseAuthHeader(const std::string &header, UUIDv4::UUID &token) {
+    if (header.size() < 7 and header.substr(0, 7) != "Bearer ") {
+        RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: invalid authorization header \"{}\"", header));
+        return RM_HTTP_CODE_UNAUTHORIZED;
+    }
+    if (not checkStringForValidUUID(header.substr(7))) {
+        RM_LOG_DEBUG(RM_LOG_LEVEL_PREFIX_DEBUG, RM_LOG_AUTO_PREFIX, fmt::format("Request auth failed: string to token conversion failed \"{}\"", header));
+        return RM_HTTP_CODE_UNAUTHORIZED;
+    }
+    token = UUIDv4::UUID::fromStrFactory(header.substr(7));
+    return RM_HTTP_CODE_OK;
 }
 
 int WebServer::listen() {

@@ -8,7 +8,8 @@ struct User {
     UUIDv4::UUID token;
     UUIDv4::UUID id;
 
-    std::string name;
+    std::string username;
+    std::string telegram;
     std::string avatarPath;
 
     Telemetry telemetry{};
