@@ -144,7 +144,7 @@ inline std::vector<std::string> splitString(std::string string, const char token
 
 inline bool checkStringForValidHex(std::string string, const uint32_t len = 0) {
     if (len != 0 and string.size() != len) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse string (\"{}\") as a HEX string: failed length test: must be {}, got {}", string, string.size(), len));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse string (\"{}\") as a HEX string: failed length test: must be {}, got {}", string, len, string.size()));
         return false;
     }
 
@@ -219,7 +219,7 @@ inline int64_t stringToTimeInterval(std::string string) {
     std::vector<std::string> values = splitString(string, ':');
 
     if (values.size() != 4) {
-        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse string (\"{}\") as a time interval: found {} values instead if 4. Note: expected format is \"DD:hh:mm:ss\"", string, values.size()));
+        RM_LOG(RM_LOG_LEVEL_PREFIX_ERROR, RM_LOG_AUTO_PREFIX, fmt::format("Failed to parse string (\"{}\") as a time interval: found {} values instead of 4. Note: expected format is \"DD:hh:mm:ss\"", string, values.size()));
         return -1;
     }
 

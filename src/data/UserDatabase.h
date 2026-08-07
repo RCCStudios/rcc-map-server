@@ -37,6 +37,8 @@ private:
     Server* parentServer = nullptr;
     int code = 0;
 
+    static void unpackUUID(const UUIDv4::UUID& uuid, int64_t &x, int64_t &y);
+
 #ifdef RM_DEBUG
     std::chrono::steady_clock::time_point begin;
 

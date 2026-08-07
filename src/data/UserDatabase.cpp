@@ -96,18 +96,20 @@ int UserDatabase::destroy() {
     return 0;
 }
 
+void UserDatabase::unpackUUID(const UUIDv4::UUID& uuid, int64_t &x, int64_t &y) {
+    char bytes[16];
+    uuid.bytes(bytes);
+    memcpy(&x, bytes + 8, 8);
+    memcpy(&y, bytes, 8);
+}
+
 int UserDatabase::validateUser(const UUIDv4::UUID &token) {
 #ifdef RM_DEBUG
     beginElapsedTimer();
 #endif
 
-    char bytes[16];
-    token.bytes(bytes);
-
-    int64_t tokenX = 0;
-    int64_t tokenY = 0;
-    memcpy(&tokenX, bytes + 8, 8);
-    memcpy(&tokenY, bytes, 8);
+    int64_t tokenX, tokenY;
+    unpackUUID(token, tokenX, tokenY);
 
     int responseCode = RM_HTTP_CODE_OK;
 
@@ -157,21 +159,12 @@ int UserDatabase::finishUserRegistration(OTP otp, User &user) {
         return RM_HTTP_CODE_UNAUTHORIZED;
     }
 
-    char bytes[16];
-    user.token.bytes(bytes);
-
-    int64_t tokenX = 0;
-    int64_t tokenY = 0;
-    memcpy(&tokenX, bytes + 8, 8);
-    memcpy(&tokenY, bytes, 8);
+    int64_t tokenX, tokenY;
+    unpackUUID(user.token, tokenX, tokenY);
 
     user.id = UUIDGenerator.getUUID();
-    user.id.bytes(bytes);
-
-    int64_t idX = 0;
-    int64_t idY = 0;
-    memcpy(&idX, bytes + 8, 8);
-    memcpy(&idY, bytes, 8);
+    int64_t idX, idY;
+    unpackUUID(user.id, idX, idY);
 
     int responseCode = RM_HTTP_CODE_OK;
 
@@ -240,13 +233,8 @@ int UserDatabase::getUserByToken(User &user) {
     beginElapsedTimer();
 #endif
 
-    char bytes[16];
-    user.token.bytes(bytes);
-
-    int64_t tokenX = 0;
-    int64_t tokenY = 0;
-    memcpy(&tokenX, bytes + 8, 8);
-    memcpy(&tokenY, bytes, 8);
+    int64_t tokenX, tokenY;
+    unpackUUID(user.token, tokenX, tokenY);
 
     int responseCode = RM_HTTP_CODE_OK;
 
@@ -283,13 +271,8 @@ int UserDatabase::getUserIDByToken(User &user) {
     beginElapsedTimer();
 #endif
 
-    char bytes[16];
-    user.token.bytes(bytes);
-
-    int64_t tokenX = 0;
-    int64_t tokenY = 0;
-    memcpy(&tokenX, bytes + 8, 8);
-    memcpy(&tokenY, bytes, 8);
+    int64_t tokenX, tokenY;
+    unpackUUID(user.token, tokenX, tokenY);
 
     int responseCode = RM_HTTP_CODE_OK;
 
@@ -316,13 +299,8 @@ int UserDatabase::removeUserByToken(const UUIDv4::UUID &token) {
     beginElapsedTimer();
 #endif
 
-    char bytes[16];
-    token.bytes(bytes);
-
-    int64_t tokenX = 0;
-    int64_t tokenY = 0;
-    memcpy(&tokenX, bytes + 8, 8);
-    memcpy(&tokenY, bytes, 8);
+    int64_t tokenX, tokenY;
+    unpackUUID(token, tokenX, tokenY);
 
     int responseCode = RM_HTTP_CODE_OK;
 
@@ -353,13 +331,8 @@ int UserDatabase::updateUserInfo(const User &user) {
         return responseCode;
     }
 
-    char bytes[16];
-    user.token.bytes(bytes);
-
-    int64_t tokenX = 0;
-    int64_t tokenY = 0;
-    memcpy(&tokenX, bytes + 8, 8);
-    memcpy(&tokenY, bytes, 8);
+    int64_t tokenX, tokenY;
+    unpackUUID(user.token, tokenX, tokenY);
 
     std::stringstream stream;
     stream << "UPDATE users SET ";
@@ -398,13 +371,8 @@ int UserDatabase::updateTelemetry(const User &user) {
         return responseCode;
     }
 
-    char bytes[16];
-    user.token.bytes(bytes);
-
-    int64_t tokenX = 0;
-    int64_t tokenY = 0;
-    memcpy(&tokenX, bytes + 8, 8);
-    memcpy(&tokenY, bytes, 8);
+    int64_t tokenX, tokenY;
+    unpackUUID(user.token, tokenX, tokenY);
 
     std::stringstream stream;
     stream << "UPDATE users SET ";
